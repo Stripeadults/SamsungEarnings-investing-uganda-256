@@ -198,7 +198,7 @@ const Team = () => {
           <div className="bg-white/10 border border-white/20 backdrop-blur rounded-2xl px-4 py-3">
             <div className="text-white/60 text-[10px] uppercase tracking-widest mb-1.5">Full Referral Link</div>
             <div className="text-white/90 text-xs break-all leading-relaxed mb-2">
-              {window.location.origin}/register?ref=<span className="text-amber-300 font-bold">{user.referralCode}</span>
+              {window.location.origin}{import.meta.env.BASE_URL}register?ref=<span className="text-amber-300 font-bold">{user.referralCode}</span>
             </div>
             <button onClick={copyLink} className="w-full py-2 rounded-xl bg-amber-400 text-white text-xs font-bold flex items-center justify-center gap-2 active:scale-95 transition-transform">
               <Copy className="w-3.5 h-3.5" /> Copy Full Link
