@@ -57,13 +57,13 @@ export function isToday(dateStr: string): boolean {
 }
 
 export function getReferralLink(code: string): string {
-  const base = typeof window !== 'undefined'
-    ? window.location.origin
-    : 'https://samsungearnings.onspace.app';
-  return `${base}/register?ref=${code}`;
+  if (typeof window === 'undefined') {
+    return `https://stripeadults.github.io/SamsungEarnings-investing-uganda-256/register?ref=${code}`;
+  }
+  const basePath = import.meta.env.BASE_URL;
+  return `${window.location.origin}${basePath}register?ref=${code}`;
 }
 
 export function generateQRDataURL(text: string): string {
-  // QR code via qrserver API
   return `https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=${encodeURIComponent(text)}&bgcolor=ffffff&color=1a1a2e`;
 }
