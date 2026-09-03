@@ -56,8 +56,16 @@ function dbToUser(r: Record<string, unknown>): User {
     createdAt: r.created_at as string,
   };
 }
-
 function dbToProduct(r: Record<string, unknown>): UserProduct {
+  let rawProof = (r.payment_proof as string) ?? '';
+  let extra: any = {};
+  try {
+    const parsed = JSON.parse(rawProof);
+    if (parsed && typeof parsed === 'object' && parsed.proof !== undefined) {
+      extra = parsed;
+      rawProof = parsed.proof;
+    }
+  } catch {}
   return {
     id: r.id as string,
     userId: r.user_id as string,
@@ -71,9 +79,15 @@ function dbToProduct(r: Record<string, unknown>): UserProduct {
     expiryDate: (r.expiry_date as string) ?? new Date().toISOString(),
     lastIncomeDate: (r.last_income_date as string | null) ?? null,
     totalIncomeEarned: Number(r.total_income_earned),
-    paymentProof: (r.payment_proof as string) ?? '',
-  };
+    paymentProof: rawProof,
+    payerPhone: extra.payerPhone || '',
+    payerName: extra.payerName || '',
+    paymentNetwork: extra.network || '',
+    paymentTargetNumber: extra.targetNumber || '',
+    paymentTargetName: extra.targetName || '',
+  } as any;
 }
+
 
 function dbToWithdrawal(r: Record<string, unknown>): Withdrawal {
   return {
