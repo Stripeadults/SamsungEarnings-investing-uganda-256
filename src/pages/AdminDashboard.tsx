@@ -781,35 +781,38 @@ const AdminDashboard = () => {
           </div>
         )}
 
-        {/* ─── Packages ─── */}
+                {/* ─── Packages ─── */}
         {tab === 'packages' && (
           <div className="space-y-3">
-            {products.length === 0 ? <div className="text-center py-12 text-gray-400">No packages found</div> : (
+            {products.length === 0? <div className="text-center py-12 text-gray-400">No packages found</div> : (
               [...products].reverse().map((p) => {
                 const user = users.find((u) => u.id === p.userId);
+                const anyP = p as any;
                 return (
-                  <div key={p.id} className="bg-white rounded-2xl p-4 shadow-sm">
+                  <div key={p.id} className="bg-white rounded-2xl p-4 shadow-sm border-2 border-amber-200">
                     <div className="flex items-center justify-between mb-2">
-                      <div><div className="font-bold text-gray-800 text-sm">{p.packageName}</div><div className="text-gray-500 text-xs">{user?.name || p.userId} • {user?.phone}</div></div>
-                      <span className={`text-xs px-2 py-1 rounded-full font-semibold capitalize ${p.status === 'pending' ? 'bg-amber-100 text-amber-700' : p.status === 'active' ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-500'}`}>{p.status}</span>
+                      <div><div className="font-bold text-gray-800 text-sm">{anyP.packageName}</div><div className="text-gray-500 text-xs">{user?.name} • {user?.phone}</div></div>
+                      <span className={`text-xs px-2 py-1 rounded-full font-semibold ${p.status === 'pending'? 'bg-amber-100 text-amber-700' : 'bg-green-100 text-green-700'}`}>{p.status}</span>
                     </div>
-                    <div className="grid grid-cols-2 gap-2 mb-3 text-xs">
-                      <div className="bg-gray-50 rounded-lg px-2 py-1.5"><div className="text-gray-400">Investment</div><div className="font-bold text-gray-700">{formatUGX(p.packagePrice)}</div></div>
-                      <div className="bg-gray-50 rounded-lg px-2 py-1.5"><div className="text-gray-400">Daily</div><div className="font-bold text-green-600">{formatUGX(p.dailyIncome)}</div></div>
+                    <div className="bg-blue-50 rounded-xl p-3 mb-2 text-xs">
+                      <div className="font-bold">Paid To: 0756406186 (Nabakooza Milly)</div>
+                      <div>From: {anyP.payerPhone || '—'} — {anyP.payerName || '—'}</div>
+                      <div>Network: {anyP.paymentNetwork || '—'} • Amount: {formatUGX(anyP.packagePrice)}</div>
                     </div>
+                    {anyP.paymentProof && <div className="bg-gray-50 rounded-xl p-2 text-[11px] text-gray-600 mb-3 break-words">SMS: {anyP.paymentProof}</div>}
                     {p.status === 'pending' && (
                       <div className="flex gap-2">
-                        <button onClick={() => approvePackage(p.id)} className="flex-1 py-2 rounded-xl bg-green-600 text-white text-xs font-semibold flex items-center justify-center gap-1"><CheckCircle className="w-4 h-4" /> Approve</button>
-                        <button onClick={() => rejectPackage(p.id)} className="flex-1 py-2 rounded-xl bg-red-500 text-white text-xs font-semibold flex items-center justify-center gap-1"><XCircle className="w-4 h-4" /> Reject</button>
+                        <button onClick={() => approvePackage(p.id)} className="flex-1 py-2 rounded-xl bg-green-600 text-white text-xs font-bold">✓ Approve & Activate</button>
+                        <button onClick={() => rejectPackage(p.id)} className="flex-1 py-2 rounded-xl bg-red-500 text-white text-xs font-bold">✗ Reject</button>
                       </div>
                     )}
-                    {p.status !== 'pending' && <button onClick={() => deleteProduct(p.id).then(refresh)} className="w-full py-2 rounded-xl bg-gray-100 text-gray-500 text-xs font-semibold flex items-center justify-center gap-1"><Trash2 className="w-4 h-4" /> Delete</button>}
                   </div>
                 );
               })
             )}
           </div>
         )}
+        
 
         {/* ─── Withdrawals ─── */}
         {tab === 'withdrawals' && (
