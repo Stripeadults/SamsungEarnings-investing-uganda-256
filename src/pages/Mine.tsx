@@ -22,7 +22,6 @@ const Mine = () => {
   const [redeemInput, setRedeemInput] = useState('');
   const [showRedeem, setShowRedeem] = useState(false);
 
-
   useEffect(() => {
     const init = async () => {
       const cached = getCurrentUser();
@@ -43,7 +42,7 @@ const Mine = () => {
       return;
     }
     const updated = {
-      ...user,
+     ...user,
       balance: user.balance + DAILY_CHECKIN_REWARD,
       totalEarnings: user.totalEarnings + DAILY_CHECKIN_REWARD,
       lastCheckIn: new Date().toISOString(),
@@ -55,7 +54,7 @@ const Mine = () => {
   };
 
   const handleRedeem = async () => {
-    if (!user || !redeemInput.trim()) return;
+    if (!user ||!redeemInput.trim()) return;
     const codes = await getRedeemCodes();
     const code = codes.find((c) => c.code === redeemInput.trim().toUpperCase() && c.isActive);
 
@@ -63,11 +62,11 @@ const Mine = () => {
     if (new Date(code.expiresAt) < new Date()) { toast.error('This code has expired (valid for 15 minutes only)'); return; }
     if (code.usedBy.includes(user.id)) { toast.error('You have already used this code'); return; }
 
-    const updated = { ...user, balance: user.balance + code.amount, totalEarnings: user.totalEarnings + code.amount };
+    const updated = {...user, balance: user.balance + code.amount, totalEarnings: user.totalEarnings + code.amount };
     await updateUser(updated);
     setCurrentUser(updated);
     setUser(updated);
-    await updateRedeemCode({ ...code, usedBy: [...code.usedBy, user.id] });
+    await updateRedeemCode({...code, usedBy: [...code.usedBy, user.id] });
     setRedeemInput('');
     setShowRedeem(false);
     toast.success(`Redeemed ${formatUGX(code.amount)}!`);
@@ -83,7 +82,7 @@ const Mine = () => {
   if (!user) return null;
 
   const checkedInToday = user.lastCheckIn && isToday(user.lastCheckIn);
-  const unreadCount = notifications.filter((n) => !n.isRead).length;
+  const unreadCount = notifications.filter((n) =>!n.isRead).length;
 
   return (
     <AppLayout>
@@ -134,16 +133,15 @@ const Mine = () => {
         </button>
       </div>
 
-      <div className="mx-4 -mt-3 bg-white rounded-2xl shadow-sm p-4 z-10 relative grid grid-cols-3 gap-2">
-        <button onClick={() => navigate('/recharge')} className="flex flex-col items-center py-2 rounded-xl bg-blue-50"><span className="text-xl">💰</span><span className="text-xs text-gray-600 font-medium mt-1">Recharge</span></button>
+      <div className="mx-4 -mt-3 bg-white rounded-2xl shadow-sm p-4 z-10 relative grid grid-cols-2 gap-2">
         <button onClick={() => navigate('/withdraw')} className="flex flex-col items-center py-2 rounded-xl bg-green-50"><span className="text-xl">💸</span><span className="text-xs text-gray-600 font-medium mt-1">Withdraw</span></button>
         <button onClick={() => navigate('/records')} className="flex flex-col items-center py-2 rounded-xl bg-amber-50"><span className="text-xl">📋</span><span className="text-xs text-gray-600 font-medium mt-1">Records</span></button>
       </div>
 
       <div className="mx-4 mt-3">
-        <button onClick={handleCheckIn} className={`w-full py-4 rounded-2xl font-bold text-sm transition-all active:scale-95 flex items-center justify-between px-5 ${checkedInToday ? 'bg-gray-100 text-gray-400' : 'text-white'}`} style={!checkedInToday ? { background: 'linear-gradient(135deg, #d97706, #f59e0b)' } : {}}>
-          <div className="flex items-center gap-2"><Calendar className={`w-5 h-5 ${checkedInToday ? 'text-gray-400' : 'text-white'}`} /><span>Daily Check-In</span></div>
-          <span>{checkedInToday ? 'Completed ✓' : `+UGX ${DAILY_CHECKIN_REWARD}`}</span>
+        <button onClick={handleCheckIn} className={`w-full py-4 rounded-2xl font-bold text-sm transition-all active:scale-95 flex items-center justify-between px-5 ${checkedInToday? 'bg-gray-100 text-gray-400' : 'text-white'}`} style={!checkedInToday? { background: 'linear-gradient(135deg, #d97706, #f59e0b)' } : {}}>
+          <div className="flex items-center gap-2"><Calendar className={`w-5 h-5 ${checkedInToday? 'text-gray-400' : 'text-white'}`} /><span>Daily Check-In</span></div>
+          <span>{checkedInToday? 'Completed ✓' : `+UGX ${DAILY_CHECKIN_REWARD}`}</span>
         </button>
       </div>
 
@@ -165,7 +163,7 @@ const Mine = () => {
           { icon: <Wallet className="w-5 h-5 text-blue-500" />, label: 'My Wallets', path: '/wallet' },
           { icon: <FileText className="w-5 h-5 text-green-500" />, label: 'My Products', path: '/my-product' },
           { icon: <BookOpen className="w-5 h-5 text-amber-500" />, label: 'Transaction Records', path: '/records' },
-          { icon: <Bell className="w-5 h-5 text-purple-500" />, label: 'Notifications', badge: unreadCount > 0 ? unreadCount : undefined, action: () => setTab(tab === 'notifications' ? 'main' : 'notifications') },
+          { icon: <Bell className="w-5 h-5 text-purple-500" />, label: 'Notifications', badge: unreadCount > 0? unreadCount : undefined, action: () => setTab(tab === 'notifications'? 'main' : 'notifications') },
           { icon: <Lock className="w-5 h-5 text-indigo-500" />, label: 'Change Password', path: '/change-password' },
           { icon: <HelpCircle className="w-5 h-5 text-teal-500" />, label: 'Customer Support', external: TELEGRAM_OFFICIAL },
           { icon: <Shield className="w-5 h-5 text-gray-500" />, label: 'Regulation', path: '/regulation' },
@@ -186,11 +184,11 @@ const Mine = () => {
             <span className="font-semibold text-gray-800">Notifications</span>
             <button onClick={() => setTab('main')} className="text-blue-600 text-xs">Close</button>
           </div>
-          {notifications.length === 0 ? (
+          {notifications.length === 0? (
             <div className="py-8 text-center text-gray-400 text-sm">No notifications yet</div>
           ) : (
             notifications.map((n) => (
-              <button key={n.id} onClick={async () => { await markNotificationRead(n.id); setNotifications((prev) => prev.map((p) => p.id === n.id ? { ...p, isRead: true } : p)); }} className={`w-full px-4 py-3 border-b border-gray-50 text-left ${!n.isRead ? 'bg-blue-50' : ''}`}>
+              <button key={n.id} onClick={async () => { await markNotificationRead(n.id); setNotifications((prev) => prev.map((p) => p.id === n.id? {...p, isRead: true } : p)); }} className={`w-full px-4 py-3 border-b border-gray-50 text-left ${!n.isRead? 'bg-blue-50' : ''}`}>
                 <div className="text-gray-800 text-sm font-medium">{n.title}</div>
                 <div className="text-gray-500 text-xs mt-0.5">{n.message}</div>
                 <div className="text-gray-300 text-xs mt-1">{formatDateTime(n.createdAt)}</div>
@@ -214,3 +212,4 @@ const Mine = () => {
 };
 
 export default Mine;
+  
