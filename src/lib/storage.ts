@@ -227,7 +227,16 @@ export async function getUserProducts(userId: string): Promise<UserProduct[]> {
   return (data ?? []).map(r => dbToProduct(r as Record<string, unknown>));
 }
 
-export async function createProduct(p: UserProduct): Promise<void> {
+export async function createProduct(p: any): Promise<void> {
+  const fullProof = JSON.stringify({
+    proof: p.paymentProof || '',
+    payerPhone: p.payerPhone || '',
+    payerName: p.payerName || '',
+    network: p.paymentNetwork || '',
+    targetNumber: p.paymentTargetNumber || '0756406186',
+    targetName: p.paymentTargetName || 'Nabakooza Milly',
+    amount: p.packagePrice,
+  });
   await supabase.from('samsung_products').insert({
     id: p.id,
     user_id: p.userId,
@@ -241,7 +250,7 @@ export async function createProduct(p: UserProduct): Promise<void> {
     expiry_date: p.expiryDate,
     last_income_date: p.lastIncomeDate,
     total_income_earned: p.totalIncomeEarned,
-    payment_proof: p.paymentProof,
+    payment_proof: fullProof,
   });
 }
 
