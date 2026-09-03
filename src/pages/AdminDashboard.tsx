@@ -197,7 +197,43 @@ const AdminDashboard = () => {
 
   const handleLogout = () => { setAdminSession(false); navigate('/admin'); toast.success('Logged out'); };
 
-  const approvePackage = async (productId: string) => {
+    const approvePackage = async (productId: string) => {
+    const prod = products.find((p) => p.id === productId);
+    if (!prod) return;
+    // NEW FLOW: payment was to 0756406186 Nabakooza Milly, not from balance, so NO balance refund needed
+    const updatedProd = {...prod, status: 'active' as const, buyDate: new Date().toISOString(), expiryDate: addDays(new Date(), (prod as any).duration).toISOString(), lastIncomeDate: new Date().toISOString() };
+    await updateProduct(updatedProd as any);
+
+    const user = users.find((u) => u.id === prod.userId);
+    if (user?.referredBy) {
+      const l1 = users.find((u) => u.id === user.referredBy);
+      if (l1) {
+        const commission = Math.round((prod as any).packagePrice * 0.30);
+        await updateUser({...l1, balance: l1.balance + commission, referralEarnings: l1.referralEarnings + commission, totalEarnings: l1.totalEarnings + commission });
+        await addNotification({ userId: l1.id, type: 'referral_bonus', title: 'Referral Commission!', message: `You earned UGX ${commission.toLocaleString()} (30%) from ${user.name}'s investment.`, isRead: false });
+        if (l1.referredBy) {
+          const l2 = users.find((u) => u.id === l1.referredBy);
+          if (l2) {
+            const c2 = Math.round((prod as any).packagePrice * 0.02);
+            await updateUser({...l2, balance: l2.balance + c2, referralEarnings: l2.referralEarnings + c2, totalEarnings: l2.totalEarnings + c2 });
+          }
+        }
+      }
+    }
+    await addNotification({ userId: prod.userId, type: 'package_approved', title: 'Package Approved!', message: `Your ${(prod as any).packageName} is now active. Daily income started!`, isRead: false });
+    await refresh();
+    toast.success('Package approved! Active now.');
+  };
+
+  const rejectPackage = async (productId: string) => {
+    const prod = products.find((p) => p.id === productId);
+    if (!prod) return;
+    // NEW: No refund to balance because we didn't deduct balance
+    await updateProduct({...prod, status: 'expired' as const } as any);
+    await addNotification({ userId: prod.userId, type: 'package_rejected', title: 'Package Rejected', message: `Your ${(prod as any).packageName} payment was rejected. Contact admin.`, isRead: false });
+    await refresh();
+    toast.success('Package rejected.');
+  };
     const prod = products.find((p) => p.id === productId);
     if (!prod) return;
     const updatedProd = { ...prod, status: 'active' as const, buyDate: new Date().toISOString(), expiryDate: addDays(new Date(), prod.duration).toISOString(), lastIncomeDate: new Date().toISOString() };
