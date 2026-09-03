@@ -86,16 +86,17 @@ const AdminLogin = () => {
             </label>
             <div className="flex items-center border border-gray-200 rounded-2xl px-4 py-3.5 bg-gray-50 focus-within:border-amber-400 transition-colors">
               <User className="w-5 h-5 text-amber-500 mr-3 shrink-0" />
-              <input
+                  <input
                 type="text"
                 value={username}
                 onChange={(e) => { setUsername(e.target.value); setError(''); }}
                 onKeyDown={handleKeyDown}
-                placeholder="nabakooza@admin.com"
+                placeholder="Enter username"
                 className="flex-1 bg-transparent text-gray-800 outline-none text-base"
-                autoComplete="username"
+                autoComplete="off"
                 autoCapitalize="none"
               />
+                
             </div>
           </div>
 
