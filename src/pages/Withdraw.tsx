@@ -67,7 +67,12 @@ const Withdraw = () => {
 
       const tax = Math.round(withdrawAmount * 0.10);
       const net = withdrawAmount - tax;
+      await supabase.from('samsung_users').update({
+        balance: user.balance - withdrawAmount,
+        totalWithdrawal: (user.totalWithdrawal || 0) + withdrawAmount
+      }).eq('id', user.id);
 
+      await supabase.from('samsung_withdrawals').insert([{
       await supabase.from('samsung_withdrawals').insert([{
         id: generateId(),
         userId: user.id,
