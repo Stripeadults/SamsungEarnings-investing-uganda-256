@@ -161,8 +161,8 @@ const Home = () => {
       <div className="mx-4 -mt-4 bg-white rounded-2xl shadow-sm p-4 z-10 relative">
         <div className="grid grid-cols-4 gap-2">
           {[
-            { icon: '💰', label: 'Recharge', path: '/recharge' },
-            { icon: '💸', label: 'Withdraw', path: '/withdraw' },
+            
+           { icon: '💸', label: 'Withdraw', path: '/withdraw' },
             { icon: '🎯', label: 'Missions', path: '/mission' },
             { icon: '📅', label: 'Check-in', path: '/mine' },
           ].map(({ icon, label, path }) => (
