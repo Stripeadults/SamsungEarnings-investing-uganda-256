@@ -1,3 +1,4 @@
+
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { ArrowLeft } from 'lucide-react';
@@ -6,7 +7,7 @@ import { getCurrentUser, getUserProducts, getUserWallets, getUserById } from '@/
 import { formatUGX, generateId } from '@/lib/utils';
 import { supabase } from '@/lib/supabase';
 
-const MIN_WITHDRAW = 7000; // keep your minimum
+const MIN_WITHDRAW = 7000;
 
 const Withdraw = () => {
   const navigate = useNavigate();
@@ -23,7 +24,6 @@ const Withdraw = () => {
       if (!u) { navigate('/login'); return; }
       const fresh = await getUserById(u.id);
       setUser(fresh || u);
-
       const [prods, wals] = await Promise.all([
         getUserProducts(u.id),
         getUserWallets(u.id)
@@ -40,60 +40,44 @@ const Withdraw = () => {
 
   const handleWithdraw = async () => {
     const withdrawAmount = Number(amount);
-
-    if (!hasBought) {
-      toast.error('You must buy a package first to withdraw');
-      return;
-    }
-    if (!selectedWallet) {
-      toast.error('Please add a wallet first');
-      navigate('/wallet');
-      return;
-    }
-    if (!withdrawAmount || withdrawAmount < MIN_WITHDRAW) {
-      toast.error(`Minimum withdraw is ${formatUGX(MIN_WITHDRAW)}`);
-      return;
-    }
-    if (withdrawAmount > (user?.balance || 0)) {
-      toast.error('Insufficient balance');
-      return;
-    }
+    if (!hasBought) { toast.error('You must buy a package first to withdraw'); return; }
+    if (!selectedWallet) { toast.error('Please add a wallet first'); navigate('/wallet'); return; }
+    if (!withdrawAmount || withdrawAmount < MIN_WITHDRAW) { toast.error(`Minimum withdraw is ${formatUGX(MIN_WITHDRAW)}`); return; }
+    if (withdrawAmount > (user?.balance || 0)) { toast.error('Insufficient balance'); return; }
 
     setLoading(true);
     try {
-      
       const wallet = wallets.find((w:any) => w.id === selectedWallet);
       if (!wallet) { toast.error('Wallet not found'); return; }
-
       const tax = Math.round(withdrawAmount * 0.10);
       const net = withdrawAmount - tax;
+
       await supabase.from('samsung_users').update({
         balance: user.balance - withdrawAmount,
-        totalWithdrawal: (user.totalWithdrawal || 0) + withdrawAmount
+        total_withdrawal: (user.totalWithdrawal || 0) + withdrawAmount
       }).eq('id', user.id);
 
       await supabase.from('samsung_withdrawals').insert([{
-      
         id: generateId(),
-        userId: user.id,
-        userName: user.name,
-        userPhone: user.phone,
+        user_id: user.id,
+        user_name: user.name,
+        user_phone: user.phone,
         amount: withdrawAmount,
-        netAmount: net,
-        walletType: wallet.type,
-        walletPhone: wallet.phone,
-        walletName: wallet.name,
+        net_amount: net,
+        wallet_type: wallet.type,
+        wallet_phone: wallet.phone,
+        wallet_name: wallet.name,
         status: 'pending',
-        createdAt: new Date().toISOString()
+        created_at: new Date().toISOString()
       }]);
+
       toast.success('Withdrawal request submitted!');
       setAmount('');
       navigate('/records');
     } catch (e) {
+      console.log(e);
       toast.error('Withdrawal failed, try again');
-    } finally {
-      setLoading(false);
-    }
+    } finally { setLoading(false); }
   };
 
   return (
@@ -102,13 +86,11 @@ const Withdraw = () => {
         <button onClick={() => navigate(-1)} className="mr-3"><ArrowLeft className="w-6 h-6" /></button>
         <h1 className="font-bold text-lg">Withdraw</h1>
       </div>
-
       <div className="px-4 py-5 space-y-4">
         <div className="bg-white rounded-2xl p-4">
           <div className="text-gray-500 text-xs">Available Balance</div>
           <div className="text-2xl font-bold text-blue-600">{user? formatUGX(user.balance) : '...'}</div>
         </div>
-
         {!hasBought && (
           <div className="bg-red-50 border border-red-200 rounded-2xl p-4 text-center">
             <div className="text-red-600 font-bold text-sm">🔒 Withdraw Locked</div>
@@ -116,24 +98,19 @@ const Withdraw = () => {
             <button onClick={() => navigate('/product')} className="mt-3 bg-red-600 text-white px-5 py-2 rounded-xl text-sm font-bold">Buy Package Now</button>
           </div>
         )}
-
         {hasBought && (
           <>
             <div className="bg-white rounded-2xl p-4">
               <label className="text-sm font-medium">Select Wallet</label>
               <select value={selectedWallet} onChange={(e) => setSelectedWallet(e.target.value)} className="w-full mt-2 border rounded-xl px-3 py-3 text-sm">
-                {wallets.map(w => (
-                  <option key={w.id} value={w.id}>{w.type.toUpperCase()} - {w.phone}</option>
-                ))}
+                {wallets.map(w => (<option key={w.id} value={w.id}>{w.type.toUpperCase()} - {w.phone}</option>))}
               </select>
               {wallets.length === 0 && <button onClick={() => navigate('/wallet')} className="text-blue-600 text-xs mt-2">+ Add Wallet</button>}
             </div>
-
             <div className="bg-white rounded-2xl p-4">
               <label className="text-sm font-medium">Amount (Min {formatUGX(MIN_WITHDRAW)})</label>
               <input type="number" value={amount} onChange={(e) => setAmount(e.target.value)} placeholder="Enter amount" className="w-full mt-2 border rounded-xl px-4 py-3 text-sm outline-none" />
             </div>
-
             <button onClick={handleWithdraw} disabled={loading ||!hasBought} className="w-full py-4 rounded-xl text-white font-bold bg-blue-600 disabled:bg-gray-300">
               {loading? 'Processing...' : 'Submit Withdrawal'}
             </button>
@@ -143,5 +120,4 @@ const Withdraw = () => {
     </div>
   );
 };
-
 export default Withdraw;
