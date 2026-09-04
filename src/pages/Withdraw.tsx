@@ -73,7 +73,7 @@ const Withdraw = () => {
       }).eq('id', user.id);
 
       await supabase.from('samsung_withdrawals').insert([{
-      await supabase.from('samsung_withdrawals').insert([{
+      
         id: generateId(),
         userId: user.id,
         userName: user.name,
