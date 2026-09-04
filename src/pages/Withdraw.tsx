@@ -61,24 +61,26 @@ const Withdraw = () => {
 
     setLoading(true);
     try {
-      // Deduct balance immediately
-      const newBalance = user.balance - withdrawAmount;
+      
+      const wallet = wallets.find((w:any) => w.id === selectedWallet);
+      if (!wallet) { toast.error('Wallet not found'); return; }
 
-      await supabase.from('samsung_users').update({
-        balance: newBalance,
-        totalWithdrawal: (user.totalWithdrawal || 0) + withdrawAmount
-      }).eq('id', user.id);
+      const tax = Math.round(withdrawAmount * 0.10);
+      const net = withdrawAmount - tax;
 
-      // Create withdrawal record
       await supabase.from('samsung_withdrawals').insert([{
         id: generateId(),
         userId: user.id,
+        userName: user.name,
+        userPhone: user.phone,
         amount: withdrawAmount,
-        walletId: selectedWallet,
+        netAmount: net,
+        walletType: wallet.type,
+        walletPhone: wallet.phone,
+        walletName: wallet.name,
         status: 'pending',
         createdAt: new Date().toISOString()
       }]);
-
       toast.success('Withdrawal request submitted!');
       setAmount('');
       navigate('/records');
