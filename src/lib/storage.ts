@@ -1,4 +1,3 @@
-I gave u this
 
 import { supabase } from '@/lib/supabase';
 import { User, UserProduct, Withdrawal, Recharge, Wallet, RedeemCode, Notification } from '@/types';
