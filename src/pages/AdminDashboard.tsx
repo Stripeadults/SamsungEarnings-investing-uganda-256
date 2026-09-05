@@ -235,18 +235,15 @@ const AdminDashboard = () => {
     toast.success('Package rejected.');
   };
     
-
-  const approveWithdrawal = async (wId: string) => {
+const approveWithdrawal = async (wId: string) => {
     const w = withdrawals.find((x) => x.id === wId);
     if (!w) return;
-    const user = users.find((u) => u.id === w.userId);
-    if (!user) return;
-    await updateUser({ ...user, balance: user.balance - w.amount, totalWithdrawal: user.totalWithdrawal + w.amount });
     await updateWithdrawal({ ...w, status: 'approved', processedAt: new Date().toISOString() });
     await addNotification({ userId: w.userId, type: 'withdrawal_approved', title: 'Withdrawal Approved!', message: `UGX ${w.netAmount.toLocaleString()} sent to ${w.walletPhone}.`, isRead: false });
     await refresh();
     toast.success('Withdrawal approved!');
   };
+  
 
   const rejectWithdrawal = async (wId: string) => {
     const w = withdrawals.find((x) => x.id === wId);
