@@ -1,91 +1,46 @@
-import { useState, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
-import { ArrowLeft } from 'lucide-react';
-import { toast } from 'sonner';
-import { getCurrentUser, getUserProducts, getUserWallets, getUserById } from '@/lib/storage';
-import { formatUGX, generateId } from '@/lib/utils';
-import { supabase } from '@/lib/supabase';
-
-const MIN_WITHDRAW = 7000;
-
-const Withdraw = () => {
-  const navigate = useNavigate();
-  const [user, setUser] = useState<any>(null);
-  const [products, setProducts] = useState<any[]>([]);
-  const [wallets, setWallets] = useState<any[]>([]);
-  const [selectedWallet, setSelectedWallet] = useState('');
-  const [amount, setAmount] = useState('');
-  const [loading, setLoading] = useState(false);
-
-  useEffect(() => {
-    const init = async () => {
-      const u = getCurrentUser();
-      if (!u) { navigate('/login'); return; }
-      const fresh = await getUserById(u.id);
-      setUser(fresh || u);
-      const [prods, wals] = await Promise.all([
-        getUserProducts(u.id),
-        getUserWallets(u.id)
-      ]);
-      setProducts(prods);
-      setWallets(wals);
-      if (wals.length > 0) setSelectedWallet(wals[0].id);
-    };
-    init();
-  }, [navigate]);
-
-  const activeProducts = products.filter(p => p.status === 'active' || p.status === 'approved' || p.status === 'Approved');
-  const hasBought = activeProducts.length > 0;
-
-  const handleWithdraw = async () => {
-    if (loading) return; // BLOCK double click
+const handleWithdraw = async () => {
+    if (loading) return;
     const withdrawAmount = Number(amount);
     if (!hasBought) { toast.error('You must buy a package first to withdraw'); return; }
-    if (!selectedWallet) { toast.error('Please add a wallet first'); navigate('/wallet'); return; }
+    if (!selectedWallet) { toast.error('Please add a wallet'); navigate('/wallet'); return; }
     if (!withdrawAmount || withdrawAmount < MIN_WITHDRAW) { toast.error(`Minimum withdraw is ${formatUGX(MIN_WITHDRAW)}`); return; }
-
-    // Get FRESH balance from DB, not from phone memory
-    const { data: freshUser } = await supabase.from('samsung_users').select('balance').eq('id', user.id).single();
-    const realBalance = Number(freshUser?.balance || 0);
-
-    if (withdrawAmount > realBalance) {
-      toast.error(`Insufficient balance. You have ${formatUGX(realBalance)}`);
-      setUser((prev:any) => ({...prev, balance: realBalance})); // update screen
-      return;
-    }
 
     setLoading(true);
     try {
-      const wallet = wallets.find((w:any) => w.id === selectedWallet);
-      if (!wallet) { toast.error('Wallet not found'); setLoading(false); return; }
-      const tax = Math.round(withdrawAmount * 0.10);
-      const net = withdrawAmount - tax;
+      // 1. Get REAL balance from DB
+      const { data: freshUser } = await supabase.from('samsung_users').select('balance, total_withdrawal').eq('id', user.id).single();
+      const realBalance = Number(freshUser?.balance || 0);
 
-      // FIX: Use atomic deduct with check inside DB
-      const { error: balError } = await supabase.rpc('withdraw_safe', {
-        p_user_id: user.id,
-        p_amount: withdrawAmount
-      });
-
-      // If you didn't create the RPC yet, use this safe version:
-      let updateError = null;
-      if (balError) {
-        // fallback - deduct with condition balance >= amount
-        const { error } = await supabase.from('samsung_users')
-         .update({
-            balance: realBalance - withdrawAmount,
-          })
-         .eq('id', user.id)
-         .gte('balance', withdrawAmount); // This prevents negative!
-
-        updateError = error;
-      }
-
-      if (updateError) {
-        toast.error('Insufficient balance or already processing');
+      if (withdrawAmount > realBalance) {
+        toast.error(`Insufficient balance. You have ${formatUGX(realBalance)}`);
+        setUser((prev:any) => ({...prev, balance: realBalance}));
+        setLoading(false);
         return;
       }
 
+      const wallet = wallets.find((w:any) => w.id === selectedWallet);
+      if (!wallet) { toast.error('Wallet not found'); setLoading(false); return; }
+      
+      const tax = Math.round(withdrawAmount * 0.10);
+      const net = withdrawAmount - tax;
+
+      // 2. ATOMIC DEDUCT - this CANNOT go negative because of .gte()
+      const { data: updated, error: updateError } = await supabase.from('samsung_users')
+        .update({ 
+          balance: realBalance - withdrawAmount,
+          total_withdrawal: (freshUser.total_withdrawal || 0) + withdrawAmount
+        })
+        .eq('id', user.id)
+        .gte('balance', withdrawAmount) // <- KEY FIX
+        .select()
+        .single();
+
+      if (updateError || !updated) {
+        toast.error(`Insufficient balance. You have ${formatUGX(realBalance)}`);
+        return;
+      }
+
+      // 3. Create record only AFTER balance deducted
       await supabase.from('samsung_withdrawals').insert([{
         id: generateId(),
         user_id: user.id,
@@ -100,59 +55,15 @@ const Withdraw = () => {
         created_at: new Date().toISOString()
       }]);
 
-      // Also update total_withdrawal safely
-      await supabase.rpc('increment_total_withdrawal', { p_user_id: user.id, p_amount: withdrawAmount });
-
-      toast.success('Withdrawal request submitted!');
+      toast.success('Withdrawal submitted!');
+      setUser((prev:any) => ({...prev, balance: updated.balance}));
       setAmount('');
-      setUser((prev:any) => ({...prev, balance: realBalance - withdrawAmount}));
       navigate('/records');
+
     } catch (e) {
       console.log(e);
-      toast.error('Withdrawal failed, try again');
+      toast.error('Withdrawal failed');
     } finally {
       setLoading(false);
     }
   };
-
-  return (
-    <div className="app-container min-h-screen bg-gray-50">
-      <div className="flex items-center px-4 py-4 bg-white border-b">
-        <button onClick={() => navigate(-1)} className="mr-3"><ArrowLeft className="w-6 h-6" /></button>
-        <h1 className="font-bold text-lg">Withdraw</h1>
-      </div>
-      <div className="px-4 py-5 space-y-4">
-        <div className="bg-white rounded-2xl p-4">
-          <div className="text-gray-500 text-xs">Available Balance</div>
-          <div className="text-2xl font-bold text-blue-600">{user? formatUGX(user.balance) : '...'}</div>
-        </div>
-        {!hasBought && (
-          <div className="bg-red-50 border border-red-200 rounded-2xl p-4 text-center">
-            <div className="text-red-600 font-bold text-sm">🔒 Withdraw Locked</div>
-            <div className="text-red-500 text-xs mt-1">You must buy at least 1 Samsung Package to unlock withdrawals</div>
-            <button onClick={() => navigate('/product')} className="mt-3 bg-red-600 text-white px-5 py-2 rounded-xl text-sm font-bold">Buy Package Now</button>
-          </div>
-        )}
-        {hasBought && (
-          <>
-            <div className="bg-white rounded-2xl p-4">
-              <label className="text-sm font-medium">Select Wallet</label>
-              <select value={selectedWallet} onChange={(e) => setSelectedWallet(e.target.value)} className="w-full mt-2 border rounded-xl px-3 py-3 text-sm">
-                {wallets.map(w => (<option key={w.id} value={w.id}>{w.type.toUpperCase()} - {w.phone}</option>))}
-              </select>
-              {wallets.length === 0 && <button onClick={() => navigate('/wallet')} className="text-blue-600 text-xs mt-2">+ Add Wallet</button>}
-            </div>
-            <div className="bg-white rounded-2xl p-4">
-              <label className="text-sm font-medium">Amount (Min {formatUGX(MIN_WITHDRAW)})</label>
-              <input type="number" value={amount} onChange={(e) => setAmount(e.target.value)} placeholder="Enter amount" className="w-full mt-2 border rounded-xl px-4 py-3 text-sm outline-none" />
-            </div>
-            <button onClick={handleWithdraw} disabled={loading ||!hasBought} className="w-full py-4 rounded-xl text-white font-bold bg-blue-600 disabled:bg-gray-300">
-              {loading? 'Processing...' : 'Submit Withdrawal'}
-            </button>
-          </>
-        )}
-      </div>
-    </div>
-  );
-};
-export default Withdraw;
