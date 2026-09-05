@@ -1,4 +1,3 @@
-
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { ArrowLeft } from 'lucide-react';
@@ -35,27 +34,57 @@ const Withdraw = () => {
     init();
   }, [navigate]);
 
-  const activeProducts = products.filter(p => p.status === 'active' || p.status === 'approved');
+  const activeProducts = products.filter(p => p.status === 'active' || p.status === 'approved' || p.status === 'Approved');
   const hasBought = activeProducts.length > 0;
 
   const handleWithdraw = async () => {
+    if (loading) return; // BLOCK double click
     const withdrawAmount = Number(amount);
     if (!hasBought) { toast.error('You must buy a package first to withdraw'); return; }
     if (!selectedWallet) { toast.error('Please add a wallet first'); navigate('/wallet'); return; }
     if (!withdrawAmount || withdrawAmount < MIN_WITHDRAW) { toast.error(`Minimum withdraw is ${formatUGX(MIN_WITHDRAW)}`); return; }
-    if (withdrawAmount > (user?.balance || 0)) { toast.error('Insufficient balance'); return; }
+
+    // Get FRESH balance from DB, not from phone memory
+    const { data: freshUser } = await supabase.from('samsung_users').select('balance').eq('id', user.id).single();
+    const realBalance = Number(freshUser?.balance || 0);
+
+    if (withdrawAmount > realBalance) {
+      toast.error(`Insufficient balance. You have ${formatUGX(realBalance)}`);
+      setUser((prev:any) => ({...prev, balance: realBalance})); // update screen
+      return;
+    }
 
     setLoading(true);
     try {
       const wallet = wallets.find((w:any) => w.id === selectedWallet);
-      if (!wallet) { toast.error('Wallet not found'); return; }
+      if (!wallet) { toast.error('Wallet not found'); setLoading(false); return; }
       const tax = Math.round(withdrawAmount * 0.10);
       const net = withdrawAmount - tax;
 
-      await supabase.from('samsung_users').update({
-        balance: user.balance - withdrawAmount,
-        total_withdrawal: (user.totalWithdrawal || 0) + withdrawAmount
-      }).eq('id', user.id);
+      // FIX: Use atomic deduct with check inside DB
+      const { error: balError } = await supabase.rpc('withdraw_safe', {
+        p_user_id: user.id,
+        p_amount: withdrawAmount
+      });
+
+      // If you didn't create the RPC yet, use this safe version:
+      let updateError = null;
+      if (balError) {
+        // fallback - deduct with condition balance >= amount
+        const { error } = await supabase.from('samsung_users')
+         .update({
+            balance: realBalance - withdrawAmount,
+          })
+         .eq('id', user.id)
+         .gte('balance', withdrawAmount); // This prevents negative!
+
+        updateError = error;
+      }
+
+      if (updateError) {
+        toast.error('Insufficient balance or already processing');
+        return;
+      }
 
       await supabase.from('samsung_withdrawals').insert([{
         id: generateId(),
@@ -71,13 +100,19 @@ const Withdraw = () => {
         created_at: new Date().toISOString()
       }]);
 
+      // Also update total_withdrawal safely
+      await supabase.rpc('increment_total_withdrawal', { p_user_id: user.id, p_amount: withdrawAmount });
+
       toast.success('Withdrawal request submitted!');
       setAmount('');
+      setUser((prev:any) => ({...prev, balance: realBalance - withdrawAmount}));
       navigate('/records');
     } catch (e) {
       console.log(e);
       toast.error('Withdrawal failed, try again');
-    } finally { setLoading(false); }
+    } finally {
+      setLoading(false);
+    }
   };
 
   return (
