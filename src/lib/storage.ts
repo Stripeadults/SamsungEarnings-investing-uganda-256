@@ -1,8 +1,6 @@
-
 import { supabase } from '@/lib/supabase';
 import { User, UserProduct, Withdrawal, Recharge, Wallet, RedeemCode, Notification } from '@/types';
 
-// ─── Current User Session (localStorage only — per device session) ────────────
 const SESSION_KEY = 'samsang_current_user';
 const ADMIN_SESSION_KEY = 'samsang_admin_session';
 
@@ -18,11 +16,6 @@ export const setCurrentUser = (user: User | null): void => {
   else localStorage.removeItem(SESSION_KEY);
 };
 
-/**
- * Fetch the latest user data from Supabase and sync the local session.
- * Call this on page load for any page that shows balance or makes purchases.
- * Returns the fresh user or null if not found.
- */
 export async function refreshCurrentUser(): Promise<User | null> {
   const cached = getCurrentUser();
   if (!cached) return null;
@@ -36,7 +29,6 @@ export const getAdminSession = (): boolean =>
 export const setAdminSession = (v: boolean): void =>
   v ? localStorage.setItem(ADMIN_SESSION_KEY, 'true') : localStorage.removeItem(ADMIN_SESSION_KEY);
 
-// ─── Type Mappers (DB snake_case ↔ App camelCase) ─────────────────────────────
 function dbToUser(r: Record<string, unknown>): User {
   return {
     id: r.id as string,
@@ -57,6 +49,7 @@ function dbToUser(r: Record<string, unknown>): User {
     createdAt: r.created_at as string,
   };
 }
+
 function dbToProduct(r: Record<string, unknown>): UserProduct {
   let rawProof = (r.payment_proof as string) ?? '';
   let extra: any = {};
@@ -67,7 +60,7 @@ function dbToProduct(r: Record<string, unknown>): UserProduct {
       rawProof = parsed.proof;
     }
   } catch {}
-  return {
+  const prod: any = {
     id: r.id as string,
     userId: r.user_id as string,
     packageId: r.package_id as string,
@@ -86,9 +79,9 @@ function dbToProduct(r: Record<string, unknown>): UserProduct {
     paymentNetwork: extra.network || '',
     paymentTargetNumber: extra.targetNumber || '',
     paymentTargetName: extra.targetName || '',
-  } as any;
+  };
+  return prod;
 }
-
 
 function dbToWithdrawal(r: Record<string, unknown>): Withdrawal {
   return {
@@ -159,31 +152,22 @@ function dbToNotification(r: Record<string, unknown>): Notification {
   };
 }
 
-// ─── Users ─────────────────────────────────────────────────────────────────────
 export async function getUsers(): Promise<User[]> {
   const { data } = await supabase.from('samsung_users').select('*').order('created_at', { ascending: false });
   return (data ?? []).map(r => dbToUser(r as Record<string, unknown>));
 }
-
 export async function getUserByPhone(phone: string): Promise<User | null> {
   const { data } = await supabase.from('samsung_users').select('*').eq('phone', phone).single();
   return data ? dbToUser(data as Record<string, unknown>) : null;
 }
-
 export async function getUserById(id: string): Promise<User | null> {
   const { data } = await supabase.from('samsung_users').select('*').eq('id', id).single();
   return data ? dbToUser(data as Record<string, unknown>) : null;
 }
-
 export async function getUserByReferralCode(code: string): Promise<User | null> {
-  const { data } = await supabase
-    .from('samsung_users')
-    .select('*')
-    .ilike('referral_code', code.trim())
-    .single();
+  const { data } = await supabase.from('samsung_users').select('*').ilike('referral_code', code.trim()).single();
   return data ? dbToUser(data as Record<string, unknown>) : null;
 }
-
 export async function createUser(user: User): Promise<void> {
   await supabase.from('samsung_users').insert({
     id: user.id,
@@ -203,7 +187,6 @@ export async function createUser(user: User): Promise<void> {
     last_check_in: user.lastCheckIn ?? null,
   });
 }
-
 export async function updateUser(user: User): Promise<void> {
   await supabase.from('samsung_users').update({
     name: user.name,
@@ -221,27 +204,20 @@ export async function updateUser(user: User): Promise<void> {
     claimed_missions: user.claimedMissions ?? [],
     last_check_in: user.lastCheckIn ?? null,
   }).eq('id', user.id);
-
-  // Keep session in sync
   const current = getCurrentUser();
   if (current?.id === user.id) setCurrentUser(user);
 }
-
 export async function deleteUserById(id: string): Promise<void> {
   await supabase.from('samsung_users').delete().eq('id', id);
 }
-
-// ─── Products ─────────────────────────────────────────────────────────────────
 export async function getProducts(): Promise<UserProduct[]> {
   const { data } = await supabase.from('samsung_products').select('*').order('created_at', { ascending: false });
   return (data ?? []).map(r => dbToProduct(r as Record<string, unknown>));
 }
-
 export async function getUserProducts(userId: string): Promise<UserProduct[]> {
   const { data } = await supabase.from('samsung_products').select('*').eq('user_id', userId).order('created_at', { ascending: false });
   return (data ?? []).map(r => dbToProduct(r as Record<string, unknown>));
 }
-
 export async function createProduct(p: any): Promise<void> {
   const fullProof = JSON.stringify({
     proof: p.paymentProof || '',
@@ -268,7 +244,6 @@ export async function createProduct(p: any): Promise<void> {
     payment_proof: fullProof,
   });
 }
-
 export async function updateProduct(p: UserProduct): Promise<void> {
   await supabase.from('samsung_products').update({
     package_id: p.packageId,
@@ -284,22 +259,17 @@ export async function updateProduct(p: UserProduct): Promise<void> {
     payment_proof: p.paymentProof,
   }).eq('id', p.id);
 }
-
 export async function deleteProduct(id: string): Promise<void> {
   await supabase.from('samsung_products').delete().eq('id', id);
 }
-
-// ─── Withdrawals ──────────────────────────────────────────────────────────────
 export async function getWithdrawals(): Promise<Withdrawal[]> {
   const { data } = await supabase.from('samsung_withdrawals').select('*').order('created_at', { ascending: true });
   return (data ?? []).map(r => dbToWithdrawal(r as Record<string, unknown>));
 }
-
 export async function getUserWithdrawals(userId: string): Promise<Withdrawal[]> {
   const { data } = await supabase.from('samsung_withdrawals').select('*').eq('user_id', userId).order('created_at', { ascending: false });
   return (data ?? []).map(r => dbToWithdrawal(r as Record<string, unknown>));
 }
-
 export async function createWithdrawal(w: Withdrawal): Promise<void> {
   await supabase.from('samsung_withdrawals').insert({
     id: w.id,
@@ -314,25 +284,20 @@ export async function createWithdrawal(w: Withdrawal): Promise<void> {
     status: w.status,
   });
 }
-
 export async function updateWithdrawal(w: Withdrawal): Promise<void> {
   await supabase.from('samsung_withdrawals').update({
     status: w.status,
     processed_at: w.processedAt,
   }).eq('id', w.id);
 }
-
-// ─── Recharges ────────────────────────────────────────────────────────────────
 export async function getRecharges(): Promise<Recharge[]> {
   const { data } = await supabase.from('samsung_recharges').select('*').order('created_at', { ascending: true });
   return (data ?? []).map(r => dbToRecharge(r as Record<string, unknown>));
 }
-
 export async function getUserRecharges(userId: string): Promise<Recharge[]> {
   const { data } = await supabase.from('samsung_recharges').select('*').eq('user_id', userId).order('created_at', { ascending: false });
   return (data ?? []).map(r => dbToRecharge(r as Record<string, unknown>));
 }
-
 export async function createRecharge(r: Recharge): Promise<void> {
   await supabase.from('samsung_recharges').insert({
     id: r.id,
@@ -347,25 +312,20 @@ export async function createRecharge(r: Recharge): Promise<void> {
     status: r.status,
   });
 }
-
 export async function updateRecharge(r: Recharge): Promise<void> {
   await supabase.from('samsung_recharges').update({
     status: r.status,
     processed_at: r.processedAt,
   }).eq('id', r.id);
 }
-
-// ─── Wallets ──────────────────────────────────────────────────────────────────
 export async function getWallets(): Promise<Wallet[]> {
   const { data } = await supabase.from('samsung_wallets').select('*');
   return (data ?? []).map(r => dbToWallet(r as Record<string, unknown>));
 }
-
 export async function getUserWallets(userId: string): Promise<Wallet[]> {
   const { data } = await supabase.from('samsung_wallets').select('*').eq('user_id', userId);
   return (data ?? []).map(r => dbToWallet(r as Record<string, unknown>));
 }
-
 export async function saveWallet(w: Wallet): Promise<void> {
   await supabase.from('samsung_wallets').upsert({
     id: w.id,
@@ -375,17 +335,13 @@ export async function saveWallet(w: Wallet): Promise<void> {
     name: w.name,
   });
 }
-
 export async function deleteWalletsByUser(userId: string): Promise<void> {
   await supabase.from('samsung_wallets').delete().eq('user_id', userId);
 }
-
-// ─── Redeem Codes ─────────────────────────────────────────────────────────────
 export async function getRedeemCodes(): Promise<RedeemCode[]> {
   const { data } = await supabase.from('samsung_redeem_codes').select('*').order('created_at', { ascending: false });
   return (data ?? []).map(r => dbToRedeemCode(r as Record<string, unknown>));
 }
-
 export async function createRedeemCode(c: RedeemCode): Promise<void> {
   await supabase.from('samsung_redeem_codes').insert({
     id: c.id,
@@ -396,29 +352,23 @@ export async function createRedeemCode(c: RedeemCode): Promise<void> {
     is_active: c.isActive,
   });
 }
-
 export async function updateRedeemCode(c: RedeemCode): Promise<void> {
   await supabase.from('samsung_redeem_codes').update({
     used_by: c.usedBy,
     is_active: c.isActive,
   }).eq('id', c.id);
 }
-
 export async function deleteRedeemCodeById(id: string): Promise<void> {
   await supabase.from('samsung_redeem_codes').delete().eq('id', id);
 }
-
-// ─── Notifications ────────────────────────────────────────────────────────────
 export async function getNotifications(): Promise<Notification[]> {
   const { data } = await supabase.from('samsung_notifications').select('*').order('created_at', { ascending: false });
   return (data ?? []).map(r => dbToNotification(r as Record<string, unknown>));
 }
-
 export async function getUserNotifications(userId: string): Promise<Notification[]> {
   const { data } = await supabase.from('samsung_notifications').select('*').eq('user_id', userId).order('created_at', { ascending: false });
   return (data ?? []).map(r => dbToNotification(r as Record<string, unknown>));
 }
-
 export async function addNotification(notif: Omit<Notification, 'id' | 'createdAt'>): Promise<void> {
   await supabase.from('samsung_notifications').insert({
     user_id: notif.userId,
@@ -428,23 +378,18 @@ export async function addNotification(notif: Omit<Notification, 'id' | 'createdA
     is_read: notif.isRead ?? false,
   });
 }
-
 export async function markNotificationRead(id: string): Promise<void> {
   await supabase.from('samsung_notifications').update({ is_read: true }).eq('id', id);
 }
-
 export async function deleteNotificationsByUser(userId: string): Promise<void> {
   await supabase.from('samsung_notifications').delete().eq('user_id', userId);
 }
-
-// ─── Daily Income Engine — FIXED: 1x per calendar day ───────────────────────
 export async function runDailyIncomeWithStats(): Promise<{ credited: number; total: number }> {
   const products = await getProducts();
   const now = new Date();
   const todayStr = now.toISOString().slice(0, 10);
   let credited = 0;
   let total = 0;
-
   for (const product of products) {
     if (product.status !== 'active') continue;
     const expiry = new Date(product.expiryDate);
@@ -485,7 +430,6 @@ export async function runDailyIncomeWithStats(): Promise<{ credited: number; tot
   }
   return { credited, total };
 }
-
 export async function processDailyIncome(): Promise<void> {
   await runDailyIncomeWithStats();
 }
