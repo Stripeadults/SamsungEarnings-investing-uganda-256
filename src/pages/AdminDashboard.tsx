@@ -275,18 +275,19 @@ const approveWithdrawal = async (wId: string) => {
 
   
 
-  };const approveRecharge = async (rId: string) => {
+  const approveRecharge = async (rId: string) => {
     const r = recharges.find((x) => x.id === rId);
     if (!r || r.status !== 'pending') return;
-    const user = users.find((u) => u.id === r.userId);
-    if (!user) return;
-    await updateUser({ ...user, balance: user.balance + r.amount });
+    const { data: freshUser } = await supabase.from('samsung_users').select('balance').eq('id', r.userId).single();
+    if (!freshUser) return;
+    await supabase.from('samsung_users').update({
+      balance: Number(freshUser.balance) + Number(r.amount)
+    }).eq('id', r.userId);
     await updateRecharge({ ...r, status: 'approved', processedAt: new Date().toISOString() });
     await addNotification({ userId: r.userId, type: 'package_approved', title: 'Recharge Approved!', message: `UGX ${r.amount.toLocaleString()} added to your account.`, isRead: false });
     await refresh();
     toast.success('Recharge approved!');
   };
-
   const rejectRecharge = async (rId: string) => {
     const r = recharges.find((x) => x.id === rId);
     if (!r || r.status !== 'pending') return;
