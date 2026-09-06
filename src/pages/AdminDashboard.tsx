@@ -256,15 +256,22 @@ const approveWithdrawal = async (wId: string) => {
   const rejectWithdrawal = async (wId: string) => {
     const w = withdrawals.find((x) => x.id === wId);
     if (!w) return;
-    const user = users.find((u) => u.id === w.userId);
-    if (user) {
-      await updateUser({ ...user, balance: user.balance + w.amount });
+    if (w.status !== 'pending') {
+      toast.error("Already processed");
+      return;
+    }
+    const { data: freshUser } = await supabase.from('samsung_users').select('balance, total_withdrawal').eq('id', w.userId).single();
+    if (freshUser) {
+      await supabase.from('samsung_users').update({
+        balance: Number(freshUser.balance) + Number(w.amount),
+        total_withdrawal: Math.max(0, Number(freshUser.total_withdrawal) - Number(w.amount))
+      }).eq('id', w.userId);
     }
     await updateWithdrawal({ ...w, status: 'rejected', processedAt: new Date().toISOString() });
     await addNotification({ userId: w.userId, type: 'withdrawal_rejected', title: 'Withdrawal Rejected - Refunded', message: `Your ${formatUGX(w.amount)} refunded to balance.`, isRead: false });
     await refresh();
     toast.success('Rejected & refunded');
-  
+  };
 
   
 
