@@ -254,13 +254,13 @@ const approveWithdrawal = async (wId: string) => {
     await addNotification({ userId: w.userId, type: 'withdrawal_rejected', title: 'Withdrawal Rejected - Refunded', message: `Your ${formatUGX(w.amount)} refunded to balance.`, isRead: false });
     await refresh();
     toast.success('Rejected & refunded');
-  };
+  
 
   
 
-  const approveRecharge = async (rId: string) => {
+  };const approveRecharge = async (rId: string) => {
     const r = recharges.find((x) => x.id === rId);
-    if (!r) return;
+    if (!r || r.status !== 'pending') return;
     const user = users.find((u) => u.id === r.userId);
     if (!user) return;
     await updateUser({ ...user, balance: user.balance + r.amount });
@@ -272,7 +272,7 @@ const approveWithdrawal = async (wId: string) => {
 
   const rejectRecharge = async (rId: string) => {
     const r = recharges.find((x) => x.id === rId);
-    if (!r) return;
+    if (!r || r.status !== 'pending') return;
     await updateRecharge({ ...r, status: 'rejected', processedAt: new Date().toISOString() });
     await refresh();
     toast.success('Recharge rejected');
