@@ -1,8 +1,7 @@
 /**
- * daily-income-scheduler - FIXED
- * - Fixes 1000 limit bug (pagination)
- * - Pays active + approved
- * - Handles null balances
+ * daily-income-scheduler - FINAL FIX
+ * - 1x per calendar day lock
+ * - product updated FIRST to prevent race
  */
 
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
@@ -25,13 +24,13 @@ Deno.serve(async (req: Request) => {
   );
 
   const now = new Date();
-  console.log(`[daily-income-scheduler] Running at ${now.toISOString()}`);
+  const todayStr = now.toISOString().slice(0, 10);
+  console.log(`[daily-income-scheduler] Running at ${now.toISOString()} - today ${todayStr}`);
 
   let credited = 0;
   let total = 0;
   const errors: string[] = [];
 
-  // ── FIX 1: Fetch ALL products with pagination ──
   let allProducts: any[] = [];
   let from = 0;
   const PAGE = 1000;
@@ -39,9 +38,8 @@ Deno.serve(async (req: Request) => {
     const { data, error } = await supabase
       .from('samsung_products')
       .select('id, user_id, package_name, daily_income, status, expiry_date, last_income_date, total_income_earned')
-      .in('status', ['active', 'approved', 'Approved']) // FIX 2: pay both
+      .in('status', ['active', 'approved', 'Approved'])
       .range(from, from + PAGE - 1);
-
     if (error) { errors.push(`Fetch error: ${error.message}`); break; }
     if (!data || data.length === 0) break;
     allProducts = allProducts.concat(data);
@@ -54,13 +52,18 @@ Deno.serve(async (req: Request) => {
   for (const product of allProducts) {
     if (!product.daily_income) continue;
 
-    // expiry - handle null
     if (product.expiry_date) {
       const expiry = new Date(product.expiry_date);
       if (!isNaN(expiry.getTime()) && now > expiry) {
         await supabase.from('samsung_products').update({ status: 'expired' }).eq('id', product.id);
         continue;
       }
+    }
+
+    // FIX: Skip if already paid today
+    if (product.last_income_date) {
+      const lastStr = new Date(product.last_income_date).toISOString().slice(0, 10);
+      if (lastStr === todayStr) continue;
     }
 
     const lastIncome = product.last_income_date ? new Date(product.last_income_date) : null;
@@ -75,11 +78,18 @@ Deno.serve(async (req: Request) => {
 
     if (userErr || !userData) { errors.push(`User ${product.user_id} not found`); continue; }
 
-    // FIX 3: handle null with Number() || 0
     const balance = Number(userData.balance || 0);
     const totalEarnings = Number(userData.total_earnings || 0);
     const dailyEarnings = Number(userData.daily_earnings || 0);
     const totalIncomeEarned = Number(product.total_income_earned || 0);
+
+    // FIX: Update product FIRST to lock the day
+    const { error: prodErr } = await supabase.from('samsung_products').update({
+      last_income_date: now.toISOString(),
+      total_income_earned: totalIncomeEarned + product.daily_income,
+    }).eq('id', product.id);
+
+    if (prodErr) { errors.push(`Product ${product.id}: ${prodErr.message}`); continue; }
 
     const { error: userUpdateErr } = await supabase
       .from('samsung_users')
@@ -90,12 +100,10 @@ Deno.serve(async (req: Request) => {
       })
       .eq('id', userData.id);
 
-    if (userUpdateErr) { errors.push(`User ${userData.id}: ${userUpdateErr.message}`); continue; }
-
-    await supabase.from('samsung_products').update({
-      last_income_date: now.toISOString(),
-      total_income_earned: totalIncomeEarned + product.daily_income,
-    }).eq('id', product.id);
+    if (userUpdateErr) { 
+      errors.push(`User ${userData.id}: ${userUpdateErr.message}`); 
+      continue; 
+    }
 
     await supabase.from('samsung_notifications').insert({
       user_id: userData.id,
