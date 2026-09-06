@@ -243,16 +243,20 @@ const approveWithdrawal = async (wId: string) => {
     await refresh();
     toast.success('Withdrawal approved!');
   };
-  
-
   const rejectWithdrawal = async (wId: string) => {
     const w = withdrawals.find((x) => x.id === wId);
     if (!w) return;
+    const user = users.find((u) => u.id === w.userId);
+    if (user) {
+      await updateUser({ ...user, balance: user.balance + w.amount });
+    }
     await updateWithdrawal({ ...w, status: 'rejected', processedAt: new Date().toISOString() });
-    await addNotification({ userId: w.userId, type: 'withdrawal_rejected', title: 'Withdrawal Rejected', message: `Your withdrawal of ${formatUGX(w.amount)} was rejected.`, isRead: false });
+    await addNotification({ userId: w.userId, type: 'withdrawal_rejected', title: 'Withdrawal Rejected - Refunded', message: `Your ${formatUGX(w.amount)} refunded to balance.`, isRead: false });
     await refresh();
-    toast.success('Withdrawal rejected');
+    toast.success('Rejected & refunded');
   };
+
+  
 
   const approveRecharge = async (rId: string) => {
     const r = recharges.find((x) => x.id === rId);
