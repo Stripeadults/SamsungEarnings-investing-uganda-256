@@ -437,41 +437,40 @@ export async function deleteNotificationsByUser(userId: string): Promise<void> {
   await supabase.from('samsung_notifications').delete().eq('user_id', userId);
 }
 
-// ─── Daily Income Engine ──────────────────────────────────────────────────────
+// ─── Daily Income Engine — FIXED: 1x per calendar day ───────────────────────
 export async function runDailyIncomeWithStats(): Promise<{ credited: number; total: number }> {
   const products = await getProducts();
   const now = new Date();
+  const todayStr = now.toISOString().slice(0, 10);
   let credited = 0;
   let total = 0;
 
   for (const product of products) {
     if (product.status !== 'active') continue;
-
     const expiry = new Date(product.expiryDate);
     if (now > expiry) {
       await updateProduct({ ...product, status: 'expired' });
       continue;
     }
-
+    if (product.lastIncomeDate) {
+      const lastStr = new Date(product.lastIncomeDate).toISOString().slice(0, 10);
+      if (lastStr === todayStr) continue;
+    }
     const lastIncome = product.lastIncomeDate ? new Date(product.lastIncomeDate) : null;
-    const hoursSinceLast = lastIncome
-      ? (now.getTime() - lastIncome.getTime()) / (1000 * 60 * 60)
-      : 25;
-
+    const hoursSinceLast = lastIncome ? (now.getTime() - lastIncome.getTime()) / (1000 * 60 * 60) : 25;
     if (hoursSinceLast >= 24) {
       const user = await getUserById(product.userId);
       if (!user) continue;
-
+      await updateProduct({
+        ...product,
+        lastIncomeDate: now.toISOString(),
+        totalIncomeEarned: product.totalIncomeEarned + product.dailyIncome,
+      });
       await updateUser({
         ...user,
         balance: user.balance + product.dailyIncome,
         totalEarnings: user.totalEarnings + product.dailyIncome,
         dailyEarnings: user.dailyEarnings + product.dailyIncome,
-      });
-      await updateProduct({
-        ...product,
-        lastIncomeDate: now.toISOString(),
-        totalIncomeEarned: product.totalIncomeEarned + product.dailyIncome,
       });
       await addNotification({
         userId: product.userId,
@@ -484,50 +483,9 @@ export async function runDailyIncomeWithStats(): Promise<{ credited: number; tot
       total += product.dailyIncome;
     }
   }
-
   return { credited, total };
 }
 
 export async function processDailyIncome(): Promise<void> {
-  const products = await getProducts();
-  const now = new Date();
-
-  for (const product of products) {
-    if (product.status !== 'active') continue;
-
-    const expiry = new Date(product.expiryDate);
-    if (now > expiry) {
-      await updateProduct({ ...product, status: 'expired' });
-      continue;
-    }
-
-    const lastIncome = product.lastIncomeDate ? new Date(product.lastIncomeDate) : null;
-    const hoursSinceLast = lastIncome
-      ? (now.getTime() - lastIncome.getTime()) / (1000 * 60 * 60)
-      : 25;
-
-    if (hoursSinceLast >= 24) {
-      const user = await getUserById(product.userId);
-      if (!user) continue;
-
-      await updateUser({
-        ...user,
-        balance: user.balance + product.dailyIncome,
-        totalEarnings: user.totalEarnings + product.dailyIncome,
-        dailyEarnings: user.dailyEarnings + product.dailyIncome,
-      });
-      await updateProduct({
-        ...product,
-        lastIncomeDate: now.toISOString(),
-        totalIncomeEarned: product.totalIncomeEarned + product.dailyIncome,
-      });
-      await addNotification({
-        userId: product.userId,
-        type: 'daily_income',
-        title: 'Daily Income Received',
-        message: `You earned UGX ${product.dailyIncome.toLocaleString()} from ${product.packageName}`,
-        isRead: false,
-      });
-    }
-  }
+  await runDailyIncomeWithStats();
 }
