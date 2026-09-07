@@ -1,12 +1,33 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { supabase } from '@/lib/supabase';
 import { toast } from 'sonner';
+import { getCurrentUser, getUserWallets } from '@/lib/storage';
 
-// paste your other imports here (keep as they were)
-// import { formatUGX, generateId, MIN_WITHDRAW } etc
+const MIN_WITHDRAW = 7000;
+const formatUGX = (n: number) => `UGX ${Number(n).toLocaleString()}`;
+const generateId = () => Math.random().toString(36).substring(2, 15);
 
-const handleWithdraw = async () => {
+export default function Withdraw() {
+  const navigate = useNavigate();
+  const [amount, setAmount] = useState('');
+  const [loading, setLoading] = useState(false);
+  const [selectedWallet, setSelectedWallet] = useState<string>('');
+  const [wallets, setWallets] = useState<any[]>([]);
+  const [user, setUser] = useState<any>(getCurrentUser());
+  const [hasBought, setHasBought] = useState(true); // set your logic
+
+  useEffect(() => {
+    const load = async () => {
+      if (!user) return;
+      const w = await getUserWallets(user.id);
+      setWallets(w);
+      if (w.length > 0) setSelectedWallet(w[0].id);
+    };
+    load();
+  }, []);
+
+  const handleWithdraw = async () => {
     if (loading) return;
     const withdrawAmount = Number(amount);
     if (!hasBought) { toast.error('You must buy a package first to withdraw'); return; }
@@ -15,7 +36,6 @@ const handleWithdraw = async () => {
 
     setLoading(true);
     try {
-      // 1. Get REAL balance from DB (only for checking, NOT deducting)
       const { data: freshUser } = await supabase.from('samsung_users').select('balance').eq('id', user.id).single();
       const realBalance = Number(freshUser?.balance || 0);
 
@@ -32,8 +52,8 @@ const handleWithdraw = async () => {
       const tax = Math.round(withdrawAmount * 0.10);
       const net = withdrawAmount - tax;
 
-      // 2. NO DEDUCT HERE - Only create pending record (balance stays 10,000)
-      const { error: insertError } = await supabase.from('samsung_withdrawals').insert([{
+      // SAFE: No deduct here - balance stays 10,000
+      const { error } = await supabase.from('samsung_withdrawals').insert([{
         id: generateId(),
         user_id: user.id,
         user_name: user.name,
@@ -47,9 +67,9 @@ const handleWithdraw = async () => {
         created_at: new Date().toISOString()
       }]);
 
-      if (insertError) throw insertError;
+      if (error) throw error;
 
-      toast.success('Withdrawal submitted! Awaiting admin approval - balance will deduct after approval');
+      toast.success('Withdrawal submitted! Balance will deduct after admin approval');
       setAmount('');
       navigate('/records');
 
@@ -60,3 +80,14 @@ const handleWithdraw = async () => {
       setLoading(false);
     }
   };
+
+  return (
+    <div className="p-4">
+      {/* Keep your existing JSX here - input, wallet select, button */}
+      <input value={amount} onChange={(e)=>setAmount(e.target.value)} placeholder="Amount" type="number" className="border p-2 w-full" />
+      <button onClick={handleWithdraw} disabled={loading} className="bg-blue-600 text-white p-3 w-full mt-3">
+        {loading ? 'Submitting...' : 'Withdraw'}
+      </button>
+    </div>
+  );
+}
