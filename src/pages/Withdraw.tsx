@@ -14,6 +14,7 @@ export default function Withdraw() {
   const [selectedWallet, setSelectedWallet] = useState('');
   const [wallets, setWallets] = useState<any[]>([]);
   const [user, setUser] = useState<any>(getCurrentUser());
+  const [hasPackage, setHasPackage] = useState<boolean>(true);
 
   useEffect(() => {
     const u = getCurrentUser();
@@ -23,10 +24,26 @@ export default function Withdraw() {
       setWallets(w);
       if (w.length > 0) setSelectedWallet(w[0].id);
     });
+
+    // check if user has bought any package
+    supabase.from('samsung_user_products').select('id').eq('user_id', u.id).limit(1).then(({ data }) => {
+      if (data && data.length > 0) setHasPackage(true);
+      else {
+        // fallback check other possible table
+        supabase.from('samsung_purchases').select('id').eq('user_id', u.id).limit(1).then(({ data: d2 }) => {
+          setHasPackage(!!(d2 && d2.length > 0));
+        });
+      }
+    });
   }, []);
 
   const handleWithdraw = async () => {
     if (loading) return;
+    if (!hasPackage) {
+      toast.error('Please buy a package first to withdraw');
+      navigate('/products');
+      return;
+    }
     const withdrawAmount = Number(amount);
     if (wallets.length === 0) { toast.error('Please add wallet first'); navigate('/wallet'); return; }
     if (!selectedWallet) { toast.error('Select wallet'); return; }
@@ -62,6 +79,19 @@ export default function Withdraw() {
       toast.error(e.message || 'Withdrawal failed');
     } finally { setLoading(false); }
   };
+
+  if (hasPackage === false) {
+    return (
+      <div className="p-4 space-y-4 pb-20 text-center pt-20">
+        <div className="text-5xl">📦</div>
+        <div className="font-bold text-lg">Buy Package to Withdraw</div>
+        <p className="text-gray-500 text-sm">You need to purchase at least one package before you can request withdrawal.</p>
+        <button onClick={()=>navigate('/products')} className="bg-blue-600 text-white p-3 w-full rounded font-bold mt-4">
+          Buy Package Now
+        </button>
+      </div>
+    );
+  }
 
   return (
     <div className="p-4 space-y-4 pb-20">
