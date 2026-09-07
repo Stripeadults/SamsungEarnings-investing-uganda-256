@@ -13,6 +13,7 @@ import {
 import { formatUGX, isToday, formatDateTime } from '@/lib/utils';
 import { DAILY_CHECKIN_REWARD, TELEGRAM_OFFICIAL } from '@/constants/packages';
 import { User as UserType, Notification } from '@/types';
+import { supabase } from '@/lib/supabase';
 
 const Mine = () => {
   const navigate = useNavigate();
@@ -21,12 +22,12 @@ const Mine = () => {
   const [notifications, setNotifications] = useState<Notification[]>([]);
   const [redeemInput, setRedeemInput] = useState('');
   const [showRedeem, setShowRedeem] = useState(false);
+  const [checking, setChecking] = useState(false);
 
   useEffect(() => {
     const init = async () => {
       const cached = getCurrentUser();
       if (!cached) { navigate('/login'); return; }
-      // Sync with cloud to get latest balance / status
       const fresh = await refreshCurrentUser();
       const u = fresh || cached;
       setUser(u);
@@ -41,35 +42,90 @@ const Mine = () => {
       toast.info('Already checked in today. Come back tomorrow!');
       return;
     }
-    const updated = {
-     ...user,
-      balance: user.balance + DAILY_CHECKIN_REWARD,
-      totalEarnings: user.totalEarnings + DAILY_CHECKIN_REWARD,
-      lastCheckIn: new Date().toISOString(),
-    };
-    await updateUser(updated);
-    setCurrentUser(updated);
-    setUser(updated);
-    toast.success(`Check-in successful! +UGX ${DAILY_CHECKIN_REWARD}`);
+    if (checking) return;
+    setChecking(true);
+    try {
+      // FIX: Get fresh balance from DB, not stale memory
+      const { data: fresh, error: fetchErr } = await supabase
+       .from('samsung_users')
+       .select('balance, total_earnings, last_check_in')
+       .eq('id', user.id)
+       .single();
+
+      if (fetchErr) throw fetchErr;
+
+      // Prevent double claim if already checked in (DB check)
+      if (fresh.last_check_in && isToday(fresh.last_check_in)) {
+        toast.info('Already checked in today!');
+        const synced = await refreshCurrentUser();
+        if (synced) setUser(synced);
+        return;
+      }
+
+      const reward = Number(DAILY_CHECKIN_REWARD);
+      const newBalance = Number(fresh.balance) + reward;
+      const newEarnings = Number(fresh.total_earnings || 0) + reward;
+      const now = new Date().toISOString();
+
+      const { error } = await supabase.from('samsung_users').update({
+        balance: newBalance,
+        total_earnings: newEarnings,
+        last_check_in: now
+      }).eq('id', user.id);
+
+      if (error) throw error;
+
+      const updated = {
+       ...user,
+        balance: newBalance,
+        totalEarnings: newEarnings,
+        lastCheckIn: now,
+      };
+      setCurrentUser(updated);
+      setUser(updated);
+      toast.success(`Check-in successful! +UGX ${reward}`);
+    } catch (e: any) {
+      console.error(e);
+      toast.error(e.message || 'Check-in failed');
+    } finally {
+      setChecking(false);
+    }
   };
 
   const handleRedeem = async () => {
     if (!user ||!redeemInput.trim()) return;
-    const codes = await getRedeemCodes();
-    const code = codes.find((c) => c.code === redeemInput.trim().toUpperCase() && c.isActive);
+    try {
+      const codes = await getRedeemCodes();
+      const code = codes.find((c) => c.code === redeemInput.trim().toUpperCase() && c.isActive);
 
-    if (!code) { toast.error('Invalid or expired redeem code'); return; }
-    if (new Date(code.expiresAt) < new Date()) { toast.error('This code has expired (valid for 15 minutes only)'); return; }
-    if (code.usedBy.includes(user.id)) { toast.error('You have already used this code'); return; }
+      if (!code) { toast.error('Invalid or expired redeem code'); return; }
+      if (new Date(code.expiresAt) < new Date()) { toast.error('This code has expired (valid for 15 minutes only)'); return; }
+      if (code.usedBy.includes(user.id)) { toast.error('You have already used this code'); return; }
 
-    const updated = {...user, balance: user.balance + code.amount, totalEarnings: user.totalEarnings + code.amount };
-    await updateUser(updated);
-    setCurrentUser(updated);
-    setUser(updated);
-    await updateRedeemCode({...code, usedBy: [...code.usedBy, user.id] });
-    setRedeemInput('');
-    setShowRedeem(false);
-    toast.success(`Redeemed ${formatUGX(code.amount)}!`);
+      const { data: fresh } = await supabase
+       .from('samsung_users')
+       .select('balance, total_earnings')
+       .eq('id', user.id)
+       .single();
+
+      const newBalance = Number(fresh?.balance || user.balance) + Number(code.amount);
+      const newEarnings = Number(fresh?.total_earnings || user.totalEarnings) + Number(code.amount);
+
+      await supabase.from('samsung_users').update({
+        balance: newBalance,
+        total_earnings: newEarnings
+      }).eq('id', user.id);
+
+      const updated = {...user, balance: newBalance, totalEarnings: newEarnings };
+      setCurrentUser(updated);
+      setUser(updated);
+      await updateRedeemCode({...code, usedBy: [...code.usedBy, user.id] });
+      setRedeemInput('');
+      setShowRedeem(false);
+      toast.success(`Redeemed ${formatUGX(code.amount)}!`);
+    } catch (e: any) {
+      toast.error(e.message);
+    }
   };
 
   const handleLogout = () => {
@@ -139,9 +195,9 @@ const Mine = () => {
       </div>
 
       <div className="mx-4 mt-3">
-        <button onClick={handleCheckIn} className={`w-full py-4 rounded-2xl font-bold text-sm transition-all active:scale-95 flex items-center justify-between px-5 ${checkedInToday? 'bg-gray-100 text-gray-400' : 'text-white'}`} style={!checkedInToday? { background: 'linear-gradient(135deg, #d97706, #f59e0b)' } : {}}>
+        <button disabled={!!checkedInToday || checking} onClick={handleCheckIn} className={`w-full py-4 rounded-2xl font-bold text-sm transition-all active:scale-95 flex items-center justify-between px-5 ${checkedInToday? 'bg-gray-100 text-gray-400' : 'text-white'}`} style={!checkedInToday? { background: 'linear-gradient(135deg, #d97706, #f59e0b)' } : {}}>
           <div className="flex items-center gap-2"><Calendar className={`w-5 h-5 ${checkedInToday? 'text-gray-400' : 'text-white'}`} /><span>Daily Check-In</span></div>
-          <span>{checkedInToday? 'Completed ✓' : `+UGX ${DAILY_CHECKIN_REWARD}`}</span>
+          <span>{checking? 'Processing...' : checkedInToday? 'Completed ✓' : `+UGX ${DAILY_CHECKIN_REWARD}`}</span>
         </button>
       </div>
 
@@ -212,4 +268,3 @@ const Mine = () => {
 };
 
 export default Mine;
-  
