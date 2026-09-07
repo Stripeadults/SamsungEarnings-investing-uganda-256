@@ -387,9 +387,9 @@ export async function deleteNotificationsByUser(userId: string): Promise<void> {
 export async function runDailyIncomeWithStats(): Promise<{ credited: number; total: number }> {
   const products = await getProducts();
   const now = new Date();
-  const todayStr = now.toISOString().slice(0, 10);
   let credited = 0;
   let total = 0;
+
   for (const product of products) {
     if (product.status !== 'active') continue;
     const expiry = new Date(product.expiryDate);
@@ -397,36 +397,40 @@ export async function runDailyIncomeWithStats(): Promise<{ credited: number; tot
       await updateProduct({ ...product, status: 'expired' });
       continue;
     }
-    if (product.lastIncomeDate) {
-      const lastStr = new Date(product.lastIncomeDate).toISOString().slice(0, 10);
-      if (lastStr === todayStr) continue;
-    }
+
     const lastIncome = product.lastIncomeDate ? new Date(product.lastIncomeDate) : null;
     const hoursSinceLast = lastIncome ? (now.getTime() - lastIncome.getTime()) / (1000 * 60 * 60) : 25;
-    if (hoursSinceLast >= 24) {
-      const user = await getUserById(product.userId);
-      if (!user) continue;
-      await updateProduct({
-        ...product,
-        lastIncomeDate: now.toISOString(),
-        totalIncomeEarned: product.totalIncomeEarned + product.dailyIncome,
-      });
-      await updateUser({
-        ...user,
-        balance: user.balance + product.dailyIncome,
-        totalEarnings: user.totalEarnings + product.dailyIncome,
-        dailyEarnings: user.dailyEarnings + product.dailyIncome,
-      });
-      await addNotification({
-        userId: product.userId,
-        type: 'daily_income',
-        title: 'Daily Income Received',
-        message: `You earned UGX ${product.dailyIncome.toLocaleString()} from ${product.packageName}`,
-        isRead: false,
-      });
-      credited += 1;
-      total += product.dailyIncome;
-    }
+    if (hoursSinceLast < 24) continue;
+
+    const { data: fresh } = await supabase.from('samsung_users').select('*').eq('id', product.userId).single();
+    if (!fresh) continue;
+
+    const newBalance = Number(fresh.balance) + Number(product.dailyIncome);
+    const newTotalEarn = Number(fresh.total_earnings) + Number(product.dailyIncome);
+    const newDailyEarn = Number(fresh.daily_earnings) + Number(product.dailyIncome);
+
+    await supabase.from('samsung_users').update({
+      balance: newBalance,
+      total_earnings: newTotalEarn,
+      daily_earnings: newDailyEarn,
+    }).eq('id', product.userId);
+
+    await updateProduct({
+      ...product,
+      lastIncomeDate: now.toISOString(),
+      totalIncomeEarned: product.totalIncomeEarned + product.dailyIncome,
+    });
+
+    await addNotification({
+      userId: product.userId,
+      type: 'daily_income',
+      title: 'Daily Income Received',
+      message: `You earned UGX ${product.dailyIncome.toLocaleString()} from ${product.packageName}`,
+      isRead: false,
+    });
+
+    credited += 1;
+    total += product.dailyIncome;
   }
   return { credited, total };
 }
