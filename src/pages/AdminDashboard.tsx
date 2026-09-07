@@ -236,7 +236,6 @@ const AdminDashboard = () => {
   };
     
 const approveWithdrawal = async (wId: string) => {
-const approveWithdrawal = async (wId: string) => {
   const w = withdrawals.find((x) => x.id === wId);
   if (!w || w.status !== 'pending') return;
 
