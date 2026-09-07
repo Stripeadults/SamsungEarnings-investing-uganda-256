@@ -288,7 +288,7 @@ export async function updateWithdrawal(w: Withdrawal): Promise<void> {
   await supabase.from('samsung_withdrawals').update({
     status: w.status,
     processed_at: w.processedAt,
-  }).eq('id', w.id);
+  }).eq('id', w.id).eq('status', 'pending');
 }
 export async function getRecharges(): Promise<Recharge[]> {
   const { data } = await supabase.from('samsung_recharges').select('*').order('created_at', { ascending: true });
