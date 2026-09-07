@@ -239,41 +239,35 @@ const approveWithdrawal = async (wId: string) => {
   const w = withdrawals.find((x) => x.id === wId);
   if (!w || w.status !== 'pending') return;
 
-  const { data: freshUser } = await supabase.from('samsung_users')
-    .select('balance, total_withdrawal').eq('id', w.userId).single();
-  
-  if (!freshUser || Number(freshUser.balance) < Number(w.amount)) {
-    toast.error(`Insufficient balance: ${formatUGX(Number(freshUser?.balance || 0))}`);
-    return;
-  }
-
-  const { data: updated, error } = await supabase.from('samsung_users')
-    .update({
-      balance: Number(freshUser.balance) - Number(w.amount),
-      total_withdrawal: Number(freshUser.total_withdrawal || 0) + Number(w.amount)
-    })
-    .eq('id', w.userId)
-    .gte('balance', w.amount)
-    .select().single();
-
-  if (error || !updated) {
-    toast.error("Would go negative - blocked");
-    return;
-  }
-
   await updateWithdrawal({ ...w, status: 'approved', processedAt: new Date().toISOString() });
-  await addNotification({ userId: w.userId, type: 'withdrawal_approved', title: 'Withdrawal Approved!', message: `UGX ${w.netAmount.toLocaleString()} sent to ${w.walletPhone}.`, isRead: false });
+  await addNotification({ 
+    userId: w.userId, 
+    type: 'withdrawal_approved', 
+    title: 'Withdrawal Approved!', 
+    message: `UGX ${w.netAmount.toLocaleString()} sent to ${w.walletPhone}.`, 
+    isRead: false 
+  });
   await refresh();
-  toast.success('Approved & deducted!');
+  toast.success('Approved!');
 };
 
 const rejectWithdrawal = async (wId: string) => {
   const w = withdrawals.find((x) => x.id === wId);
   if (!w || w.status !== 'pending') return;
+
+  // Refund because balance was already deducted at submit
+  const { data: freshUser } = await supabase.from('samsung_users')
+    .select('balance').eq('id', w.userId).single();
+  if (freshUser) {
+    await supabase.from('samsung_users').update({
+      balance: Number(freshUser.balance) + Number(w.amount)
+    }).eq('id', w.userId);
+  }
+
   await updateWithdrawal({ ...w, status: 'rejected', processedAt: new Date().toISOString() });
-  await addNotification({ userId: w.userId, type: 'withdrawal_rejected', title: 'Withdrawal Rejected', message: `Your request for ${formatUGX(w.amount)} was rejected.`, isRead: false });
+  await addNotification({ userId: w.userId, type: 'withdrawal_rejected', title: 'Withdrawal Rejected - Refunded', message: `Your ${formatUGX(w.amount)} refunded.`, isRead: false });
   await refresh();
-  toast.success('Rejected');
+  toast.success('Rejected & refunded');
 };
 
   
