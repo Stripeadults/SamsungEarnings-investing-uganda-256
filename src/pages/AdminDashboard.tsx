@@ -236,6 +236,7 @@ const AdminDashboard = () => {
   };
     
 const approveWithdrawal = async (wId: string) => {
+const approveWithdrawal = async (wId: string) => {
   const w = withdrawals.find((x) => x.id === wId);
   if (!w || w.status !== 'pending') return;
 
@@ -256,22 +257,26 @@ const approveWithdrawal = async (wId: string) => {
       balance: Number(freshUser.balance) - Number(w.amount),
       total_withdrawal: Number(freshUser.total_withdrawal || 0) + Number(w.amount)
     })
-    .eq('id', w.userId)
-    .gte('balance', w.amount);
+    .eq('id', w.userId);
 
   if (error) {
-    toast.error('Blocked - would go negative');
+    toast.error('Failed: ' + error.message);
     return;
   }
 
-  await updateWithdrawal({ ...w, status: 'approved', processedAt: new Date().toISOString() });
+  await supabase.from('samsung_withdrawals').update({
+    status: 'approved',
+    processed_at: new Date().toISOString()
+  }).eq('id', w.id);
+
   await addNotification({ 
     userId: w.userId, 
     type: 'withdrawal_approved', 
     title: 'Withdrawal Approved!', 
-    message: `UGX ${w.netAmount.toLocaleString()} sent to ${w.walletPhone}.`, 
+    message: `UGX ${Number(w.netAmount).toLocaleString()} sent to ${w.walletPhone}.`, 
     isRead: false 
   });
+  
   await refresh();
   toast.success(`Approved! New balance ${formatUGX(Number(freshUser.balance) - Number(w.amount))}`);
 };
@@ -280,8 +285,18 @@ const rejectWithdrawal = async (wId: string) => {
   const w = withdrawals.find((x) => x.id === wId);
   if (!w || w.status !== 'pending') return;
 
-  await updateWithdrawal({ ...w, status: 'rejected', processedAt: new Date().toISOString() });
-  await addNotification({ userId: w.userId, type: 'withdrawal_rejected', title: 'Withdrawal Rejected', message: `Request for ${formatUGX(w.amount)} rejected. Balance unchanged.`, isRead: false });
+  await supabase.from('samsung_withdrawals').update({
+    status: 'rejected',
+    processed_at: new Date().toISOString()
+  }).eq('id', w.id);
+
+  await addNotification({ 
+    userId: w.userId, 
+    type: 'withdrawal_rejected', 
+    title: 'Withdrawal Rejected', 
+    message: `Request for ${formatUGX(w.amount)} rejected. Balance unchanged.`, 
+    isRead: false 
+  });
   await refresh();
   toast.success('Rejected');
 };
