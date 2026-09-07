@@ -239,22 +239,31 @@ const approveWithdrawal = async (wId: string) => {
   const w = withdrawals.find((x) => x.id === wId);
   if (!w || w.status !== 'pending') return;
 
-  const { data: freshUser } = await supabase
+  const { data: freshUser, error: fetchErr } = await supabase
     .from('samsung_users')
     .select('balance, total_withdrawal')
     .eq('id', w.userId)
     .single();
 
-  if (!freshUser || Number(freshUser.balance) < Number(w.amount)) {
-    toast.error(`Cannot approve - user has only ${formatUGX(Number(freshUser?.balance||0))}`);
+  if (fetchErr || !freshUser) {
+    toast.error('User not found');
     return;
   }
 
+  const currentBalance = Number(freshUser.balance);
+  const amount = Number(w.amount);
+
+  if (currentBalance < amount) {
+    toast.error(`Cannot approve - user has only ${formatUGX(currentBalance)} but wants ${formatUGX(amount)}`);
+    return;
+  }
+
+  // DEDUCT ONLY requested amount, nothing else
   const { error } = await supabase
     .from('samsung_users')
     .update({
-      balance: Number(freshUser.balance) - Number(w.amount),
-      total_withdrawal: Number(freshUser.total_withdrawal || 0) + Number(w.amount)
+      balance: currentBalance - amount, // only amount
+      total_withdrawal: Number(freshUser.total_withdrawal || 0) + amount
     })
     .eq('id', w.userId);
 
@@ -272,18 +281,19 @@ const approveWithdrawal = async (wId: string) => {
     userId: w.userId, 
     type: 'withdrawal_approved', 
     title: 'Withdrawal Approved!', 
-    message: `UGX ${Number(w.netAmount).toLocaleString()} sent to ${w.walletPhone}.`, 
+    message: `UGX ${Number(w.netAmount || amount).toLocaleString()} sent to ${w.walletPhone}.`, 
     isRead: false 
   });
   
   await refresh();
-  toast.success(`Approved! New balance ${formatUGX(Number(freshUser.balance) - Number(w.amount))}`);
+  toast.success(`Approved! Deducted ${formatUGX(amount)} - New balance ${formatUGX(currentBalance - amount)}`);
 };
 
 const rejectWithdrawal = async (wId: string) => {
   const w = withdrawals.find((x) => x.id === wId);
   if (!w || w.status !== 'pending') return;
 
+  // No balance change on reject (because we only deduct on approve)
   await supabase.from('samsung_withdrawals').update({
     status: 'rejected',
     processed_at: new Date().toISOString()
@@ -293,13 +303,12 @@ const rejectWithdrawal = async (wId: string) => {
     userId: w.userId, 
     type: 'withdrawal_rejected', 
     title: 'Withdrawal Rejected', 
-    message: `Request for ${formatUGX(w.amount)} rejected. Balance unchanged.`, 
+    message: `Request for ${formatUGX(w.amount)} rejected. No deduction.`, 
     isRead: false 
   });
   await refresh();
-  toast.success('Rejected');
+  toast.success('Rejected - no balance touched');
 };
-  
 
   const approveRecharge = async (rId: string) => {
     const r = recharges.find((x) => x.id === rId);
