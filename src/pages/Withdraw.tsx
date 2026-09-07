@@ -15,7 +15,8 @@ export default function Withdraw() {
   const [selectedWallet, setSelectedWallet] = useState<string>('');
   const [wallets, setWallets] = useState<any[]>([]);
   const [user, setUser] = useState<any>(getCurrentUser());
-  const [hasBought, setHasBought] = useState(true); // set your logic
+  const [pendingAmount, setPendingAmount] = useState(0);
+  const [hasBought] = useState(true);
 
   useEffect(() => {
     const load = async () => {
@@ -23,6 +24,17 @@ export default function Withdraw() {
       const w = await getUserWallets(user.id);
       setWallets(w);
       if (w.length > 0) setSelectedWallet(w[0].id);
+
+      const { data: pendings } = await supabase
+        .from('samsung_withdrawals')
+        .select('amount')
+        .eq('user_id', user.id)
+        .eq('status', 'pending');
+
+      if (pendings) {
+        const total = pendings.reduce((s: number, a: any) => s + Number(a.amount), 0);
+        setPendingAmount(total);
+      }
     };
     load();
   }, []);
@@ -41,18 +53,18 @@ export default function Withdraw() {
 
       if (withdrawAmount > realBalance) {
         toast.error(`Insufficient balance. You have ${formatUGX(realBalance)}`);
-        setUser((prev:any) => ({...prev, balance: realBalance}));
+        setUser((prev: any) => ({ ...prev, balance: realBalance }));
         setLoading(false);
         return;
       }
 
-      const wallet = wallets.find((w:any) => w.id === selectedWallet);
+      const wallet = wallets.find((w: any) => w.id === selectedWallet);
       if (!wallet) { toast.error('Wallet not found'); setLoading(false); return; }
       
       const tax = Math.round(withdrawAmount * 0.10);
       const net = withdrawAmount - tax;
 
-      // SAFE: No deduct here - balance stays 10,000
+      // FLOW B: NO DEDUCT HERE - only create pending record
       const { error } = await supabase.from('samsung_withdrawals').insert([{
         id: generateId(),
         user_id: user.id,
@@ -69,8 +81,9 @@ export default function Withdraw() {
 
       if (error) throw error;
 
-      toast.success('Withdrawal submitted! Balance will deduct after admin approval');
+      toast.success(`Withdrawal submitted! ${formatUGX(withdrawAmount)} pending approval. Balance will deduct after admin approves.`);
       setAmount('');
+      setPendingAmount(prev => prev + withdrawAmount);
       navigate('/records');
 
     } catch (e) {
@@ -81,13 +94,54 @@ export default function Withdraw() {
     }
   };
 
+  const currentBalance = Number(user?.balance || 0);
+  const withdrawValue = Number(amount || 0);
+  const remainingAfter = currentBalance - pendingAmount - withdrawValue;
+
   return (
-    <div className="p-4">
-      {/* Keep your existing JSX here - input, wallet select, button */}
-      <input value={amount} onChange={(e)=>setAmount(e.target.value)} placeholder="Amount" type="number" className="border p-2 w-full" />
-      <button onClick={handleWithdraw} disabled={loading} className="bg-blue-600 text-white p-3 w-full mt-3">
+    <div className="p-4 space-y-4">
+      <div className="bg-blue-50 border border-blue-100 rounded-2xl p-4 space-y-1">
+        <div className="flex justify-between text-sm">
+          <span className="text-gray-500">Available Balance:</span>
+          <span className="font-bold text-blue-600">{formatUGX(currentBalance)}</span>
+        </div>
+        {pendingAmount > 0 && (
+          <div className="flex justify-between text-sm">
+            <span className="text-gray-500">Pending Withdrawal:</span>
+            <span className="font-bold text-amber-600">{formatUGX(pendingAmount)}</span>
+          </div>
+        )}
+        <div className="flex justify-between text-sm pt-2 border-t border-blue-100">
+          <span className="text-gray-500">Will remain after approval:</span>
+          <span className={`font-bold ${remainingAfter < 0 ? 'text-red-500' : 'text-green-600'}`}>{formatUGX(remainingAfter)}</span>
+        </div>
+      </div>
+
+      <input 
+        value={amount} 
+        onChange={(e)=>setAmount(e.target.value)} 
+        placeholder="Enter amount" 
+        type="number" 
+        className="border border-gray-200 p-3 w-full rounded-xl outline-none" 
+      />
+      
+      {wallets.length > 0 && (
+        <select value={selectedWallet} onChange={(e)=>setSelectedWallet(e.target.value)} className="border border-gray-200 p-3 w-full rounded-xl outline-none bg-white">
+          {wallets.map((w:any)=>(
+            <option key={w.id} value={w.id}>{w.type.toUpperCase()} - {w.phone} ({w.name})</option>
+          ))}
+        </select>
+      )}
+
+      <button onClick={handleWithdraw} disabled={loading} className="bg-blue-600 text-white p-3 w-full rounded-xl font-bold disabled:opacity-50">
         {loading ? 'Submitting...' : 'Withdraw'}
       </button>
+
+      {pendingAmount > 0 && (
+        <div className="text-center text-xs text-amber-600 bg-amber-50 p-2 rounded-xl">
+          You have {formatUGX(pendingAmount)} pending withdrawal awaiting admin approval
+        </div>
+      )}
     </div>
   );
 }
