@@ -1,3 +1,11 @@
+import { useState } from 'react';
+import { useNavigate } from 'react-router-dom';
+import { supabase } from '@/lib/supabase';
+import { toast } from 'sonner';
+
+// paste your other imports here (keep as they were)
+// import { formatUGX, generateId, MIN_WITHDRAW } etc
+
 const handleWithdraw = async () => {
     if (loading) return;
     const withdrawAmount = Number(amount);
@@ -7,8 +15,8 @@ const handleWithdraw = async () => {
 
     setLoading(true);
     try {
-      // 1. Get REAL balance from DB
-      const { data: freshUser } = await supabase.from('samsung_users').select('balance, total_withdrawal').eq('id', user.id).single();
+      // 1. Get REAL balance from DB (only for checking, NOT deducting)
+      const { data: freshUser } = await supabase.from('samsung_users').select('balance').eq('id', user.id).single();
       const realBalance = Number(freshUser?.balance || 0);
 
       if (withdrawAmount > realBalance) {
@@ -24,24 +32,8 @@ const handleWithdraw = async () => {
       const tax = Math.round(withdrawAmount * 0.10);
       const net = withdrawAmount - tax;
 
-      // 2. ATOMIC DEDUCT - this CANNOT go negative because of .gte()
-      const { data: updated, error: updateError } = await supabase.from('samsung_users')
-        .update({ 
-          balance: realBalance - withdrawAmount,
-          total_withdrawal: (freshUser.total_withdrawal || 0) + withdrawAmount
-        })
-        .eq('id', user.id)
-        .gte('balance', withdrawAmount) // <- KEY FIX
-        .select()
-        .single();
-
-      if (updateError || !updated) {
-        toast.error(`Insufficient balance. You have ${formatUGX(realBalance)}`);
-        return;
-      }
-
-      // 3. Create record only AFTER balance deducted
-      await supabase.from('samsung_withdrawals').insert([{
+      // 2. NO DEDUCT HERE - Only create pending record (balance stays 10,000)
+      const { error: insertError } = await supabase.from('samsung_withdrawals').insert([{
         id: generateId(),
         user_id: user.id,
         user_name: user.name,
@@ -55,8 +47,9 @@ const handleWithdraw = async () => {
         created_at: new Date().toISOString()
       }]);
 
-      toast.success('Withdrawal submitted!');
-      setUser((prev:any) => ({...prev, balance: updated.balance}));
+      if (insertError) throw insertError;
+
+      toast.success('Withdrawal submitted! Awaiting admin approval - balance will deduct after approval');
       setAmount('');
       navigate('/records');
 
