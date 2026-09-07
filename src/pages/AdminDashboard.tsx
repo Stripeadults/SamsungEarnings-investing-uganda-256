@@ -239,6 +239,31 @@ const approveWithdrawal = async (wId: string) => {
   const w = withdrawals.find((x) => x.id === wId);
   if (!w || w.status !== 'pending') return;
 
+  const { data: freshUser } = await supabase
+    .from('samsung_users')
+    .select('balance, total_withdrawal')
+    .eq('id', w.userId)
+    .single();
+
+  if (!freshUser || Number(freshUser.balance) < Number(w.amount)) {
+    toast.error(`Cannot approve - user has only ${formatUGX(Number(freshUser?.balance||0))}`);
+    return;
+  }
+
+  const { error } = await supabase
+    .from('samsung_users')
+    .update({
+      balance: Number(freshUser.balance) - Number(w.amount),
+      total_withdrawal: Number(freshUser.total_withdrawal || 0) + Number(w.amount)
+    })
+    .eq('id', w.userId)
+    .gte('balance', w.amount);
+
+  if (error) {
+    toast.error('Blocked - would go negative');
+    return;
+  }
+
   await updateWithdrawal({ ...w, status: 'approved', processedAt: new Date().toISOString() });
   await addNotification({ 
     userId: w.userId, 
@@ -248,28 +273,18 @@ const approveWithdrawal = async (wId: string) => {
     isRead: false 
   });
   await refresh();
-  toast.success('Approved!');
+  toast.success(`Approved! New balance ${formatUGX(Number(freshUser.balance) - Number(w.amount))}`);
 };
 
 const rejectWithdrawal = async (wId: string) => {
   const w = withdrawals.find((x) => x.id === wId);
   if (!w || w.status !== 'pending') return;
 
-  // Refund because balance was already deducted at submit
-  const { data: freshUser } = await supabase.from('samsung_users')
-    .select('balance').eq('id', w.userId).single();
-  if (freshUser) {
-    await supabase.from('samsung_users').update({
-      balance: Number(freshUser.balance) + Number(w.amount)
-    }).eq('id', w.userId);
-  }
-
   await updateWithdrawal({ ...w, status: 'rejected', processedAt: new Date().toISOString() });
-  await addNotification({ userId: w.userId, type: 'withdrawal_rejected', title: 'Withdrawal Rejected - Refunded', message: `Your ${formatUGX(w.amount)} refunded.`, isRead: false });
+  await addNotification({ userId: w.userId, type: 'withdrawal_rejected', title: 'Withdrawal Rejected', message: `Request for ${formatUGX(w.amount)} rejected. Balance unchanged.`, isRead: false });
   await refresh();
-  toast.success('Rejected & refunded');
+  toast.success('Rejected');
 };
-
   
 
   const approveRecharge = async (rId: string) => {
