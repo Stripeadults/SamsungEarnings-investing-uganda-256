@@ -3,7 +3,6 @@ import { useNavigate } from 'react-router-dom';
 import { supabase } from '@/lib/supabase';
 import { toast } from 'sonner';
 import { getCurrentUser, getUserWallets, createWithdrawal } from '@/lib/storage';
-import * as Storage from '@/lib/storage';
 
 const MIN_WITHDRAW = 7000;
 const formatUGX = (n: number) => `UGX ${Number(n).toLocaleString()}`;
@@ -28,29 +27,39 @@ export default function Withdraw() {
 
     const check = async () => {
       try {
-        const funcNames = ['getUserProducts','getUserInvestments','getUserPackages','getUserOrders','getMyProducts','getMyInvestments','getInvestments','getProducts'];
-        for (const fn of funcNames) {
-          const f = (Storage as any)[fn];
-          if (typeof f === 'function') {
-            try {
-              const res = await f(u.id);
-              if (Array.isArray(res) && res.length > 0) { setHasPackage(true); return; }
-            } catch {}
-          }
+        // SECURE: Only active + not expired packages from server
+        const { data, error } = await supabase
+          .from('samsung_products')
+          .select('id')
+          .eq('user_id', u.id)
+          .eq('status', 'active')
+          .gt('expiry_date', new Date().toISOString())
+          .limit(1);
+
+        if (error) {
+          console.error(error);
+          setHasPackage(false);
+          return;
         }
-        const { data: ud } = await supabase.from('samsung_users').select('*').eq('id', u.id).single();
-        if (ud) {
-          const invested = Number((ud as any).total_invested || (ud as any).total_investment || 0);
-          if (invested > 0) { setHasPackage(true); return; }
+
+        if (data && data.length > 0) {
+          setHasPackage(true);
+        } else {
+          setHasPackage(false);
         }
+      } catch {
         setHasPackage(false);
-      } catch { setHasPackage(false); }
+      }
     };
     check();
   }, []);
 
   const handleWithdraw = async () => {
-    if (loading || hasPackage === false) return; // HARD BLOCK
+    if (loading) return;
+    if (hasPackage === false) {
+      toast.error('Please buy a package first - you have no active package');
+      return;
+    }
     const withdrawAmount = Number(amount);
     if (wallets.length === 0) { toast.error('Please add wallet first'); navigate('/wallet'); return; }
     if (!selectedWallet) { toast.error('Select wallet'); return; }
@@ -58,34 +67,62 @@ export default function Withdraw() {
 
     setLoading(true);
     try {
+      // SECURE: Fresh balance from server, not localStorage
       const { data: freshUser } = await supabase.from('samsung_users').select('balance').eq('id', user.id).single();
-      if (withdrawAmount > Number(freshUser?.balance || 0)) {
-        toast.error(`Insufficient. You have ${formatUGX(Number(freshUser?.balance||0))}`);
+      if (!freshUser) {
+        toast.error('User not found');
         setLoading(false); return;
       }
+      if (withdrawAmount > Number(freshUser.balance || 0)) {
+        toast.error(`Insufficient. You have ${formatUGX(Number(freshUser.balance||0))}`);
+        setLoading(false); return;
+      }
+
+      // SECURE: Re-check active package server-side before withdraw (double protection)
+      const { data: activeCheck } = await supabase
+        .from('samsung_products')
+        .select('id')
+        .eq('user_id', user.id)
+        .eq('status', 'active')
+        .gt('expiry_date', new Date().toISOString())
+        .limit(1);
+
+      if (!activeCheck || activeCheck.length === 0) {
+        toast.error('No active package found - cannot withdraw');
+        setHasPackage(false);
+        setLoading(false);
+        return;
+      }
+
       const wallet = wallets.find((w:any) => w.id === selectedWallet);
       const net = withdrawAmount - Math.round(withdrawAmount*0.10);
       await createWithdrawal({
-        userId: user.id, userName: user.name, userPhone: user.phone,
-        amount: withdrawAmount, netAmount: net,
-        walletType: wallet.type, walletPhone: wallet.phone, walletName: wallet.name,
+        userId: user.id, 
+        userName: user.name, 
+        userPhone: user.phone,
+        amount: withdrawAmount, 
+        netAmount: net,
+        walletType: wallet.type, 
+        walletPhone: wallet.phone, 
+        walletName: wallet.name,
         status: 'pending',
-      });
-      toast.success('Withdrawal submitted!');
-      setAmount(''); navigate('/records');
-    } catch (e:any) { toast.error(e.message || 'Withdrawal failed'); }
+      } as any);
+      toast.success('Withdrawal submitted! Waiting admin approval');
+      setAmount(''); 
+      navigate('/records');
+    } catch (e:any) { 
+      toast.error(e.message || 'Withdrawal failed - no active package'); 
+    }
     finally { setLoading(false); }
   };
 
-  // === HARD BLOCK: NO PACKAGE = NO WITHDRAW FORM ===
   if (hasPackage === false) {
     return (
       <div className="p-6 pb-20 pt-24 text-center">
-        <div className="bg-red-50 border-2 border-red-300 rounded-2xl p-8">
-          <div className="text-5xl mb-3">🔒</div>
-          <h2 className="font-bold text-red-600 text-lg">Withdrawal Blocked</h2>
-          <p className="text-sm text-gray-700 mt-3">You have no package bought in history or current. You cannot request withdrawal.</p>
-          <p className="text-xs text-gray-500 mt-2">Buy at least 1 package to unlock.</p>
+        <div className="bg-red-50 border-2 border-red-300 rounded-2xl p-6">
+          <div className="text-4xl mb-2">📦</div>
+          <h2 className="font-bold text-red-600 text-lg">Buy Package First</h2>
+          <p className="text-sm text-gray-600 mt-3">System detected you have no ACTIVE package. Pending packages cannot withdraw until admin approves your payment. New accounts without active package cannot withdraw.</p>
           <button onClick={()=>navigate('/products')} className="bg-blue-600 text-white w-full p-3 rounded-xl font-bold mt-6">Buy Package Now</button>
         </div>
       </div>
@@ -94,7 +131,7 @@ export default function Withdraw() {
 
   return (
     <div className="p-4 space-y-4 pb-20">
-      <div className="bg-gray-100 p-3 rounded font-bold">Balance: {formatUGX(Number(user?.balance || 0))} {hasPackage===null?' (checking...)':''}</div>
+      <div className="bg-gray-100 p-3 rounded font-bold">Balance: {formatUGX(Number(user?.balance || 0))} {hasPackage===null?' (checking...)':'(Active package ✓)'}</div>
       <div>
         <h3 className="font-bold mb-2">Select Wallet ({wallets.length})</h3>
         {wallets.length === 0 ? (
@@ -114,9 +151,9 @@ export default function Withdraw() {
         )}
       </div>
       <input value={amount} onChange={(e)=>setAmount(e.target.value)} placeholder="Amount" type="number" className="border p-3 w-full rounded" />
-      {amount && hasPackage && <div className="text-xs text-gray-500">You will receive: {formatUGX(Number(amount) - Math.round(Number(amount)*0.10))}</div>}
+      {amount && hasPackage && <div className="text-xs text-gray-500">You will receive: {formatUGX(Number(amount) - Math.round(Number(amount)*0.10))} (10% fee)</div>}
       <button onClick={handleWithdraw} disabled={loading || wallets.length===0 || hasPackage!==true} className="bg-blue-600 disabled:bg-gray-400 text-white p-3 w-full rounded font-bold">
-        {hasPackage===null ? 'Checking...' : loading ? 'Submitting...' : 'Withdraw'}
+        {hasPackage===null ? 'Checking package...' : loading ? 'Submitting...' : 'Withdraw'}
       </button>
     </div>
   );
