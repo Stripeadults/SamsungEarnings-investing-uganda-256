@@ -39,7 +39,6 @@ const App = () => {
     const run = async () => {
       const last = localStorage.getItem(LAST_RUN_KEY);
       const now = Date.now();
-      // Prevent running more than once per 30 mins per device
       if (last && now - Number(last) < 30 * 60 * 1000) return;
       
       try {
@@ -53,7 +52,7 @@ const App = () => {
     };
     
     run();
-    const interval = setInterval(run, 60 * 60 * 1000); // every hour
+    const interval = setInterval(run, 60 * 60 * 1000);
     return () => clearInterval(interval);
   }, []);
 
@@ -63,7 +62,7 @@ const App = () => {
         <Toaster />
         <Sonner />
         <MigrationBanner />
-        <BrowserRouter basename="/SamsungEarnings-investing-uganda-256/">
+        <BrowserRouter>
           <Routes>
             <Route path="/" element={<Index />} />
             <Route path="/login" element={<Login />} />
