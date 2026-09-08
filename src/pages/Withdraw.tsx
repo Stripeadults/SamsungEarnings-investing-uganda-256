@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { supabase } from '@/lib/supabase';
 import { toast } from 'sonner';
 import { getCurrentUser, getUserWallets, createWithdrawal } from '@/lib/storage';
+import * as Storage from '@/lib/storage';
 
 const MIN_WITHDRAW = 7000;
 const formatUGX = (n: number) => `UGX ${Number(n).toLocaleString()}`;
@@ -26,39 +27,32 @@ export default function Withdraw() {
     });
 
     const check = async () => {
-      const TABLES_TO_TRY = [
-        'samsung_user_products','samsung_purchases','samsung_investments',
-        'samsung_user_packages','user_products','purchases','investments',
-        'user_investments','samsung_orders','orders','samsung_user_investments'
-      ];
-
-      console.log("=== CHECKING PACKAGE FOR USER:", u.id, "===");
-      let hasAnyPurchase = false;
-
-      for (const tbl of TABLES_TO_TRY) {
-        try {
-          const { data, error } = await supabase.from(tbl).select('id').eq('user_id', u.id).limit(1);
-          if (!error) {
-            console.log(`Table ${tbl} exists, found ${data?.length} records`);
-            if (data && data.length > 0) { hasAnyPurchase = true; console.log(`✅ FOUND PACKAGE IN ${tbl}`); break; }
-          } else {
-            // try userId
-            const r2 = await supabase.from(tbl).select('id').eq('userId', u.id).limit(1);
-            if (!r2.error && r2.data && r2.data.length > 0) { hasAnyPurchase = true; console.log(`✅ FOUND PACKAGE IN ${tbl} (userId)`); break; }
+      try {
+        // 1. Try EVERY history function your storage.ts might have
+        const funcNames = ['getUserProducts','getUserInvestments','getUserPackages','getUserOrders','getMyProducts','getMyInvestments','getInvestments','getProducts','getUserProductHistory'];
+        for (const fn of funcNames) {
+          const f = (Storage as any)[fn];
+          if (typeof f === 'function') {
+            try {
+              const res = await f(u.id);
+              console.log(`Checking ${fn}:`, res);
+              if (Array.isArray(res) && res.length > 0) { setHasPackage(true); return; }
+            } catch {}
           }
-        } catch (e) {}
-      }
+        }
 
-      // If not found, also check samsung_users total_invested
-      if (!hasAnyPurchase) {
+        // 2. Fallback: check samsung_users total_invested (many apps use this)
         const { data: ud } = await supabase.from('samsung_users').select('*').eq('id', u.id).single();
-        console.log("User data:", ud);
-        const invested = Number((ud as any)?.total_invested || (ud as any)?.total_investment || 0);
-        if (invested > 0) hasAnyPurchase = true;
-      }
+        if (ud) {
+          const invested = Number((ud as any).total_invested || (ud as any).total_investment || (ud as any).total_packages || 0);
+          if (invested > 0) { setHasPackage(true); return; }
+        }
 
-      console.log("FINAL hasPackage:", hasAnyPurchase);
-      setHasPackage(hasAnyPurchase);
+        // 3. If still not found, no package
+        setHasPackage(false);
+      } catch {
+        setHasPackage(false);
+      }
     };
     check();
   }, []);
@@ -66,8 +60,7 @@ export default function Withdraw() {
   const handleWithdraw = async () => {
     if (loading) return;
     if (hasPackage === false) {
-      toast.error('Please buy a package first');
-      navigate('/products');
+      toast.error('Please buy a package first - you have no package history');
       return;
     }
     const withdrawAmount = Number(amount);
@@ -98,11 +91,12 @@ export default function Withdraw() {
 
   if (hasPackage === false) {
     return (
-      <div className="p-4 pb-20 pt-20 text-center">
-        <div className="bg-red-50 border-2 border-red-200 rounded-2xl p-6">
-          <div className="font-bold text-red-600">Buy Package First 📦</div>
-          <p className="text-sm text-gray-600 mt-2">You have no package in history. New accounts must buy a package to unlock withdrawal.</p>
-          <button onClick={()=>navigate('/products')} className="bg-blue-600 text-white p-3 w-full rounded-xl font-bold mt-4">Buy Package Now</button>
+      <div className="p-6 pb-20 pt-24 text-center">
+        <div className="bg-red-50 border-2 border-red-300 rounded-2xl p-6">
+          <div className="text-4xl mb-2">📦</div>
+          <h2 className="font-bold text-red-600 text-lg">Buy Package First</h2>
+          <p className="text-sm text-gray-600 mt-3">System detected you have no package bought in history and current. New accounts without package cannot withdraw.</p>
+          <button onClick={()=>navigate('/products')} className="bg-blue-600 text-white w-full p-3 rounded-xl font-bold mt-6">Buy Package Now</button>
         </div>
       </div>
     );
@@ -110,7 +104,7 @@ export default function Withdraw() {
 
   return (
     <div className="p-4 space-y-4 pb-20">
-      <div className="bg-gray-100 p-3 rounded font-bold">Balance: {formatUGX(Number(user?.balance || 0))}</div>
+      <div className="bg-gray-100 p-3 rounded font-bold">Balance: {formatUGX(Number(user?.balance || 0))} {hasPackage===null?' (checking...)':''}</div>
       <div>
         <h3 className="font-bold mb-2">Select Wallet ({wallets.length})</h3>
         {wallets.length === 0 ? (
@@ -126,14 +120,13 @@ export default function Withdraw() {
                 <div className={`w-5 h-5 rounded-full border flex items-center justify-center ${selectedWallet===w.id?'bg-blue-600 border-blue-600':''}`}>{selectedWallet===w.id && <div className="w-2 h-2 bg-white rounded-full"></div>}</div>
               </div>
             ))}
-            <button onClick={()=>navigate('/wallet')} className="text-blue-600 text-sm mt-2">+ Add another wallet</button>
           </div>
         )}
       </div>
       <input value={amount} onChange={(e)=>setAmount(e.target.value)} placeholder="Amount" type="number" className="border p-3 w-full rounded" />
-      {amount && hasPackage && <div className="text-xs text-gray-500">You will receive: {formatUGX(Number(amount) - Math.round(Number(amount)*0.10))} (10% fee)</div>}
-      <button onClick={handleWithdraw} disabled={loading || wallets.length===0 || hasPackage===null} className="bg-blue-600 disabled:bg-gray-400 text-white p-3 w-full rounded font-bold">
-        {hasPackage===null ? 'Checking...' : loading ? 'Submitting...' : 'Withdraw'}
+      {amount && hasPackage && <div className="text-xs text-gray-500">You will receive: {formatUGX(Number(amount) - Math.round(Number(amount)*0.10))}</div>}
+      <button onClick={handleWithdraw} disabled={loading || wallets.length===0 || hasPackage!==true} className="bg-blue-600 disabled:bg-gray-400 text-white p-3 w-full rounded font-bold">
+        {hasPackage===null ? 'Checking package...' : loading ? 'Submitting...' : 'Withdraw'}
       </button>
     </div>
   );
