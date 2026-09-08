@@ -187,25 +187,20 @@ export async function createUser(user: User): Promise<void> {
     last_check_in: user.lastCheckIn ?? null,
   });
 }
+
+// SECURED: Client can no longer update balance/earnings - only name/missions
 export async function updateUser(user: User): Promise<void> {
   await supabase.from('samsung_users').update({
     name: user.name,
-    phone: user.phone,
-    password: user.password,
-    balance: user.balance,
-    total_earnings: user.totalEarnings,
-    daily_earnings: user.dailyEarnings,
-    referral_earnings: user.referralEarnings,
-    total_withdrawal: user.totalWithdrawal,
-    registration_bonus: user.registrationBonus,
-    referral_code: user.referralCode,
-    referred_by: user.referredBy,
-    frozen: user.frozen ?? false,
     claimed_missions: user.claimedMissions ?? [],
     last_check_in: user.lastCheckIn ?? null,
   }).eq('id', user.id);
   const current = getCurrentUser();
-  if (current?.id === user.id) setCurrentUser(user);
+  if (current?.id === user.id) {
+    // refresh from server to avoid fake balance in localStorage
+    const fresh = await getUserById(user.id);
+    if (fresh) setCurrentUser(fresh);
+  }
 }
 export async function deleteUserById(id: string): Promise<void> {
   await supabase.from('samsung_users').delete().eq('id', id);
@@ -218,6 +213,8 @@ export async function getUserProducts(userId: string): Promise<UserProduct[]> {
   const { data } = await supabase.from('samsung_products').select('*').eq('user_id', userId).order('created_at', { ascending: false });
   return (data ?? []).map(r => dbToProduct(r as Record<string, unknown>));
 }
+
+// SECURED: All new products are PENDING - admin must approve after verifying MTN payment
 export async function createProduct(p: any): Promise<void> {
   const fullProof = JSON.stringify({
     proof: p.paymentProof || '',
@@ -236,27 +233,20 @@ export async function createProduct(p: any): Promise<void> {
     package_price: p.packagePrice,
     daily_income: p.dailyIncome,
     duration: p.duration,
-    status: p.status,
+    status: 'pending', // FORCED pending - cannot buy without admin
     buy_date: p.buyDate,
     expiry_date: p.expiryDate,
     last_income_date: p.lastIncomeDate,
-    total_income_earned: p.totalIncomeEarned,
+    total_income_earned: 0,
     payment_proof: fullProof,
   });
 }
 export async function updateProduct(p: UserProduct): Promise<void> {
+  // Only admin should call this via service_role key, client cannot activate
   await supabase.from('samsung_products').update({
-    package_id: p.packageId,
-    package_name: p.packageName,
-    package_price: p.packagePrice,
-    daily_income: p.dailyIncome,
-    duration: p.duration,
     status: p.status,
-    buy_date: p.buyDate,
-    expiry_date: p.expiryDate,
     last_income_date: p.lastIncomeDate,
     total_income_earned: p.totalIncomeEarned,
-    payment_proof: p.paymentProof,
   }).eq('id', p.id);
 }
 export async function deleteProduct(id: string): Promise<void> {
@@ -270,7 +260,17 @@ export async function getUserWithdrawals(userId: string): Promise<Withdrawal[]> 
   const { data } = await supabase.from('samsung_withdrawals').select('*').eq('user_id', userId).order('created_at', { ascending: false });
   return (data ?? []).map(r => dbToWithdrawal(r as Record<string, unknown>));
 }
+
+// SECURED: Withdraw checks server for active package
 export async function createWithdrawal(w: Withdrawal): Promise<void> {
+  // Double check on client too (server RLS will also block)
+  const activeProducts = await getUserProducts(w.userId);
+  const hasActive = activeProducts.some(p => p.status === 'active' && new Date(p.expiryDate) > new Date());
+  
+  if (!hasActive) {
+    throw new Error("No active package - cannot withdraw");
+  }
+
   await supabase.from('samsung_withdrawals').insert({
     id: w.id,
     user_id: w.userId,
@@ -281,7 +281,7 @@ export async function createWithdrawal(w: Withdrawal): Promise<void> {
     wallet_type: w.walletType,
     wallet_phone: w.walletPhone,
     wallet_name: w.walletName,
-    status: w.status,
+    status: 'pending', // Always pending
   });
 }
 export async function updateWithdrawal(w: Withdrawal): Promise<void> {
@@ -309,7 +309,7 @@ export async function createRecharge(r: Recharge): Promise<void> {
     sender_phone: r.senderPhone,
     sender_name: r.senderName,
     proof: r.proof,
-    status: r.status,
+    status: 'pending',
   });
 }
 export async function updateRecharge(r: Recharge): Promise<void> {
