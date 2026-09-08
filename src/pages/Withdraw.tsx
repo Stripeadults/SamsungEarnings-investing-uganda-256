@@ -14,7 +14,7 @@ export default function Withdraw() {
   const [selectedWallet, setSelectedWallet] = useState('');
   const [wallets, setWallets] = useState<any[]>([]);
   const [user, setUser] = useState<any>(getCurrentUser());
-  const [hasPackage, setHasPackage] = useState(true); // default allow
+  const [hasPackage, setHasPackage] = useState<boolean | null>(null); // null = checking
 
   useEffect(() => {
     const u = getCurrentUser();
@@ -25,34 +25,48 @@ export default function Withdraw() {
       if (w.length > 0) setSelectedWallet(w[0].id);
     });
 
-    // === ONLY NEW PART - Check history ===
-    (async () => {
-      try {
-        // Check directly from your products history
-        // If you know the exact table, keep only that one line
-        const { data, error } = await supabase.from('samsung_purchases').select('id').eq('user_id', u.id).limit(1);
-        if (error) throw error;
-        if (!data || data.length === 0) {
-          // double check second possible name
-          const { data: data2 } = await supabase.from('samsung_user_products').select('id').eq('user_id', u.id).limit(1);
-          if (!data2 || data2.length === 0) {
-            setHasPackage(false); // confirmed no package at all
+    const checkHasPackage = async () => {
+      // CHANGE THIS NAME TO YOUR REAL TABLE IF NEEDED
+      const PURCHASE_TABLES = [
+        'samsung_user_products',
+        'samsung_purchases',
+        'samsung_investments',
+        'samsung_user_packages',
+        'user_products',
+        'investments',
+        'purchases'
+      ];
+
+      for (const tbl of PURCHASE_TABLES) {
+        try {
+          const { data, error } = await supabase.from(tbl).select('id').eq('user_id', u.id).limit(1);
+          if (!error && data && data.length > 0) {
+            setHasPackage(true);
+            return;
           }
-        }
-      } catch {
-        // If table not found, DON'T BLOCK - keep hasPackage = true
-        setHasPackage(true);
+          // try camelCase userId
+          const { data: data2, error: err2 } = await supabase.from(tbl).select('id').eq('userId', u.id).limit(1);
+          if (!err2 && data2 && data2.length > 0) {
+            setHasPackage(true);
+            return;
+          }
+        } catch {}
       }
-    })();
+      // if we reach here, no purchase found in ANY table
+      setHasPackage(false);
+    };
+    checkHasPackage();
   }, []);
 
   const handleWithdraw = async () => {
     if (loading) return;
-
-    // === ONLY NEW CHECK ===
-    if (!hasPackage) {
-      toast.error('Please buy a package first. You have no package in history.');
+    if (hasPackage === false) {
+      toast.error('You have no package. Please buy package first.');
       navigate('/products');
+      return;
+    }
+    if (hasPackage === null) {
+      toast.error('Checking your package history...');
       return;
     }
 
@@ -87,22 +101,32 @@ export default function Withdraw() {
       setAmount('');
       navigate('/records');
     } catch (e:any) {
-      console.error(e);
       toast.error(e.message || 'Withdrawal failed');
     } finally { setLoading(false); }
   };
+
+  // === LOCK SCREEN FOR NO PACKAGE ===
+  if (hasPackage === false) {
+    return (
+      <div className="p-4 space-y-4 pb-20 pt-16 text-center">
+        <div className="bg-red-50 border-2 border-red-200 rounded-2xl p-6">
+          <div className="text-4xl mb-3">🔒</div>
+          <div className="font-bold text-red-600">Withdrawal Locked</div>
+          <p className="text-sm text-gray-600 mt-2">You have no package in history or current. You must buy at least one package before withdrawing.</p>
+          <p className="text-xs text-gray-500 mt-1">Balance: {formatUGX(Number(user?.balance || 0))}</p>
+          <button onClick={()=>navigate('/products')} className="bg-blue-600 text-white p-3 w-full rounded-xl font-bold mt-5">
+            Buy Package Now
+          </button>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="p-4 space-y-4 pb-20">
       <div className="bg-gray-100 p-3 rounded font-bold">Balance: {formatUGX(Number(user?.balance || 0))}</div>
 
-      {!hasPackage && (
-        <div className="bg-red-50 border border-red-300 rounded-xl p-4 text-center">
-          <div className="font-bold text-red-600 text-sm">You have no package in history 🔒</div>
-          <p className="text-xs text-gray-600 mt-1">Buy at least one package to unlock withdrawal.</p>
-          <button onClick={()=>navigate('/products')} className="mt-3 bg-blue-600 text-white px-6 py-2 rounded-xl text-sm font-bold w-full">Buy Package Now</button>
-        </div>
-      )}
+      {hasPackage === null && <div className="text-xs text-gray-500 text-center">Checking package history...</div>}
 
       <div>
         <h3 className="font-bold mb-2">Select Wallet ({wallets.length})</h3>
@@ -129,11 +153,11 @@ export default function Withdraw() {
         )}
       </div>
 
-      <input value={amount} onChange={(e)=>setAmount(e.target.value)} placeholder="Amount" type="number" className="border p-3 w-full rounded" />
-      {amount && <div className="text-xs text-gray-500">You will receive: {formatUGX(Number(amount) - Math.round(Number(amount)*0.10))} (10% fee)</div>}
+      <input value={amount} onChange={(e)=>setAmount(e.target.value)} placeholder="Amount" type="number" className="border p-3 w-full rounded" disabled={hasPackage===false} />
+      {amount && hasPackage && <div className="text-xs text-gray-500">You will receive: {formatUGX(Number(amount) - Math.round(Number(amount)*0.10))} (10% fee)</div>}
       
-      <button onClick={handleWithdraw} disabled={loading || wallets.length===0 || !hasPackage} className="bg-blue-600 disabled:bg-gray-400 text-white p-3 w-full rounded font-bold">
-        {!hasPackage ? 'Buy Package to Withdraw' : loading ? 'Submitting...' : 'Withdraw'}
+      <button onClick={handleWithdraw} disabled={loading || wallets.length===0 || hasPackage!==true} className="bg-blue-600 disabled:bg-gray-400 text-white p-3 w-full rounded font-bold">
+        {hasPackage===null ? 'Checking...' : loading ? 'Submitting...' : 'Withdraw'}
       </button>
     </div>
   );
