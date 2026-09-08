@@ -28,41 +28,29 @@ export default function Withdraw() {
 
     const check = async () => {
       try {
-        // 1. Try EVERY history function your storage.ts might have
-        const funcNames = ['getUserProducts','getUserInvestments','getUserPackages','getUserOrders','getMyProducts','getMyInvestments','getInvestments','getProducts','getUserProductHistory'];
+        const funcNames = ['getUserProducts','getUserInvestments','getUserPackages','getUserOrders','getMyProducts','getMyInvestments','getInvestments','getProducts'];
         for (const fn of funcNames) {
           const f = (Storage as any)[fn];
           if (typeof f === 'function') {
             try {
               const res = await f(u.id);
-              console.log(`Checking ${fn}:`, res);
               if (Array.isArray(res) && res.length > 0) { setHasPackage(true); return; }
             } catch {}
           }
         }
-
-        // 2. Fallback: check samsung_users total_invested (many apps use this)
         const { data: ud } = await supabase.from('samsung_users').select('*').eq('id', u.id).single();
         if (ud) {
-          const invested = Number((ud as any).total_invested || (ud as any).total_investment || (ud as any).total_packages || 0);
+          const invested = Number((ud as any).total_invested || (ud as any).total_investment || 0);
           if (invested > 0) { setHasPackage(true); return; }
         }
-
-        // 3. If still not found, no package
         setHasPackage(false);
-      } catch {
-        setHasPackage(false);
-      }
+      } catch { setHasPackage(false); }
     };
     check();
   }, []);
 
   const handleWithdraw = async () => {
-    if (loading) return;
-    if (hasPackage === false) {
-      toast.error('Please buy a package first - you have no package history');
-      return;
-    }
+    if (loading || hasPackage === false) return; // HARD BLOCK
     const withdrawAmount = Number(amount);
     if (wallets.length === 0) { toast.error('Please add wallet first'); navigate('/wallet'); return; }
     if (!selectedWallet) { toast.error('Select wallet'); return; }
@@ -89,13 +77,15 @@ export default function Withdraw() {
     finally { setLoading(false); }
   };
 
+  // === HARD BLOCK: NO PACKAGE = NO WITHDRAW FORM ===
   if (hasPackage === false) {
     return (
       <div className="p-6 pb-20 pt-24 text-center">
-        <div className="bg-red-50 border-2 border-red-300 rounded-2xl p-6">
-          <div className="text-4xl mb-2">📦</div>
-          <h2 className="font-bold text-red-600 text-lg">Buy Package First</h2>
-          <p className="text-sm text-gray-600 mt-3">System detected you have no package bought in history and current. New accounts without package cannot withdraw.</p>
+        <div className="bg-red-50 border-2 border-red-300 rounded-2xl p-8">
+          <div className="text-5xl mb-3">🔒</div>
+          <h2 className="font-bold text-red-600 text-lg">Withdrawal Blocked</h2>
+          <p className="text-sm text-gray-700 mt-3">You have no package bought in history or current. You cannot request withdrawal.</p>
+          <p className="text-xs text-gray-500 mt-2">Buy at least 1 package to unlock.</p>
           <button onClick={()=>navigate('/products')} className="bg-blue-600 text-white w-full p-3 rounded-xl font-bold mt-6">Buy Package Now</button>
         </div>
       </div>
@@ -126,7 +116,7 @@ export default function Withdraw() {
       <input value={amount} onChange={(e)=>setAmount(e.target.value)} placeholder="Amount" type="number" className="border p-3 w-full rounded" />
       {amount && hasPackage && <div className="text-xs text-gray-500">You will receive: {formatUGX(Number(amount) - Math.round(Number(amount)*0.10))}</div>}
       <button onClick={handleWithdraw} disabled={loading || wallets.length===0 || hasPackage!==true} className="bg-blue-600 disabled:bg-gray-400 text-white p-3 w-full rounded font-bold">
-        {hasPackage===null ? 'Checking package...' : loading ? 'Submitting...' : 'Withdraw'}
+        {hasPackage===null ? 'Checking...' : loading ? 'Submitting...' : 'Withdraw'}
       </button>
     </div>
   );
