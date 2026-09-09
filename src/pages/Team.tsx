@@ -41,7 +41,8 @@ const Team = () => {
     const loadTeam = async () => {
       const allUsers = await getUsers();
 
-      const l1Users = allUsers.filter((au) => au.referredBy === u.id);
+      // FIX: referredBy can be ID or referralCode
+      const l1Users = allUsers.filter((au) => au.referredBy === u.id || au.referredBy === u.referralCode);
       const l1: TeamMember[] = await Promise.all(l1Users.map(async (au) => ({
         user: au,
         level: 1,
@@ -49,7 +50,8 @@ const Team = () => {
       })));
 
       const l1Ids = l1Users.map((x) => x.id);
-      const l2Users = allUsers.filter((au) => au.referredBy && l1Ids.includes(au.referredBy));
+      const l1Codes = l1Users.map((x) => x.referralCode);
+      const l2Users = allUsers.filter((au) => au.referredBy && (l1Ids.includes(au.referredBy) || l1Codes.includes(au.referredBy)));
       const l2: TeamMember[] = await Promise.all(l2Users.map(async (au) => ({
         user: au,
         level: 2,
@@ -57,7 +59,8 @@ const Team = () => {
       })));
 
       const l2Ids = l2Users.map((x) => x.id);
-      const l3Users = allUsers.filter((au) => au.referredBy && l2Ids.includes(au.referredBy));
+      const l2Codes = l2Users.map((x) => x.referralCode);
+      const l3Users = allUsers.filter((au) => au.referredBy && (l2Ids.includes(au.referredBy) || l2Codes.includes(au.referredBy)));
       const l3: TeamMember[] = await Promise.all(l3Users.map(async (au) => ({
         user: au,
         level: 3,
