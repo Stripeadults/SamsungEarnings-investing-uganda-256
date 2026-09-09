@@ -188,7 +188,6 @@ export async function createUser(user: User): Promise<void> {
   });
 }
 
-// SECURED: Client can no longer update balance/earnings - only name/missions
 export async function updateUser(user: User): Promise<void> {
   await supabase.from('samsung_users').update({
     name: user.name,
@@ -197,7 +196,6 @@ export async function updateUser(user: User): Promise<void> {
   }).eq('id', user.id);
   const current = getCurrentUser();
   if (current?.id === user.id) {
-    // refresh from server to avoid fake balance in localStorage
     const fresh = await getUserById(user.id);
     if (fresh) setCurrentUser(fresh);
   }
@@ -214,7 +212,6 @@ export async function getUserProducts(userId: string): Promise<UserProduct[]> {
   return (data ?? []).map(r => dbToProduct(r as Record<string, unknown>));
 }
 
-// SECURED: All new products are PENDING - admin must approve after verifying MTN payment
 export async function createProduct(p: any): Promise<void> {
   const fullProof = JSON.stringify({
     proof: p.paymentProof || '',
@@ -233,7 +230,7 @@ export async function createProduct(p: any): Promise<void> {
     package_price: p.packagePrice,
     daily_income: p.dailyIncome,
     duration: p.duration,
-    status: 'pending', // FORCED pending - cannot buy without admin
+    status: 'pending',
     buy_date: p.buyDate,
     expiry_date: p.expiryDate,
     last_income_date: p.lastIncomeDate,
@@ -241,14 +238,96 @@ export async function createProduct(p: any): Promise<void> {
     payment_proof: fullProof,
   });
 }
+
+// HELPER: find user by ID or referral_code (fixes old data)
+async function findUserByRef(ref: string) {
+  if (!ref) return null;
+  let { data } = await supabase.from('samsung_users').select('*').eq('id', ref).single();
+  if (data) return data;
+  const { data: byCode } = await supabase.from('samsung_users').select('*').eq('referral_code', ref).single();
+  return byCode;
+}
+
+// FIXED: Now pays L1/L2/L3 on approval
 export async function updateProduct(p: UserProduct): Promise<void> {
-  // Only admin should call this via service_role key, client cannot activate
+  const { data: oldProd } = await supabase.from('samsung_products').select('status, user_id, package_price, package_name').eq('id', p.id).single();
+  
   await supabase.from('samsung_products').update({
     status: p.status,
     last_income_date: p.lastIncomeDate,
     total_income_earned: p.totalIncomeEarned,
   }).eq('id', p.id);
+
+  // Only pay commission when changing from pending -> active (first approval)
+  if (oldProd && oldProd.status === 'pending' && p.status === 'active') {
+    const buyerId = oldProd.user_id as string;
+    const price = Number(oldProd.package_price);
+    const packageName = oldProd.package_name as string;
+
+    const { data: buyerRow } = await supabase.from('samsung_users').select('referred_by').eq('id', buyerId).single();
+    const ref = buyerRow?.referred_by as string | null;
+    if (!ref) return;
+
+    const l1Row = await findUserByRef(ref);
+    if (!l1Row) return;
+
+    const l1Reward = Math.round(price * 0.30);
+    await supabase.from('samsung_users').update({
+      balance: Number(l1Row.balance) + l1Reward,
+      total_earnings: Number(l1Row.total_earnings) + l1Reward,
+      referral_earnings: Number(l1Row.referral_earnings) + l1Reward,
+    }).eq('id', l1Row.id);
+
+    await supabase.from('samsung_notifications').insert({
+      user_id: l1Row.id,
+      type: 'referral_bonus',
+      title: 'L1 Commission Received',
+      message: `You earned UGX ${l1Reward.toLocaleString()} (30%) from ${packageName}`,
+      is_read: false,
+    });
+
+    if (l1Row.referred_by) {
+      const l2Row = await findUserByRef(l1Row.referred_by as string);
+      if (l2Row) {
+        const l2Reward = Math.round(price * 0.02);
+        await supabase.from('samsung_users').update({
+          balance: Number(l2Row.balance) + l2Reward,
+          total_earnings: Number(l2Row.total_earnings) + l2Reward,
+          referral_earnings: Number(l2Row.referral_earnings) + l2Reward,
+        }).eq('id', l2Row.id);
+
+        await supabase.from('samsung_notifications').insert({
+          user_id: l2Row.id,
+          type: 'referral_bonus',
+          title: 'L2 Commission Received',
+          message: `You earned UGX ${l2Reward.toLocaleString()} (2%) from ${packageName}`,
+          is_read: false,
+        });
+
+        if (l2Row.referred_by) {
+          const l3Row = await findUserByRef(l2Row.referred_by as string);
+          if (l3Row) {
+            const l3Reward = Math.round(price * 0.01);
+            await supabase.from('samsung_users').update({
+              balance: Number(l3Row.balance) + l3Reward,
+              total_earnings: Number(l3Row.total_earnings) + l3Reward,
+              referral_earnings: Number(l3Row.referral_earnings) + l3Reward,
+            }).eq('id', l3Row.id);
+
+            await supabase.from('samsung_notifications').insert({
+              user_id: l3Row.id,
+              type: 'referral_bonus',
+              title: 'L3 Commission Received',
+              message: `You earned UGX ${l3Reward.toLocaleString()} (1%) from ${packageName}`,
+              is_read: false,
+            });
+          }
+        }
+      }
+    }
+  }
 }
+
 export async function deleteProduct(id: string): Promise<void> {
   await supabase.from('samsung_products').delete().eq('id', id);
 }
@@ -261,16 +340,12 @@ export async function getUserWithdrawals(userId: string): Promise<Withdrawal[]> 
   return (data ?? []).map(r => dbToWithdrawal(r as Record<string, unknown>));
 }
 
-// SECURED: Withdraw checks server for active package
 export async function createWithdrawal(w: Withdrawal): Promise<void> {
-  // Double check on client too (server RLS will also block)
   const activeProducts = await getUserProducts(w.userId);
   const hasActive = activeProducts.some(p => p.status === 'active' && new Date(p.expiryDate) > new Date());
-  
   if (!hasActive) {
     throw new Error("No active package - cannot withdraw");
   }
-
   await supabase.from('samsung_withdrawals').insert({
     id: w.id,
     user_id: w.userId,
@@ -281,7 +356,7 @@ export async function createWithdrawal(w: Withdrawal): Promise<void> {
     wallet_type: w.walletType,
     wallet_phone: w.walletPhone,
     wallet_name: w.walletName,
-    status: 'pending', // Always pending
+    status: 'pending',
   });
 }
 export async function updateWithdrawal(w: Withdrawal): Promise<void> {
@@ -394,10 +469,9 @@ export async function runDailyIncomeWithStats(): Promise<{ credited: number; tot
     if (product.status !== 'active') continue;
     const expiry = new Date(product.expiryDate);
     if (now > expiry) {
-      await updateProduct({ ...product, status: 'expired' });
+      await supabase.from('samsung_products').update({ status: 'expired' }).eq('id', product.id);
       continue;
     }
-
     const lastIncome = product.lastIncomeDate ? new Date(product.lastIncomeDate) : null;
     const hoursSinceLast = lastIncome ? (now.getTime() - lastIncome.getTime()) / (1000 * 60 * 60) : 25;
     if (hoursSinceLast < 24) continue;
@@ -415,11 +489,10 @@ export async function runDailyIncomeWithStats(): Promise<{ credited: number; tot
       daily_earnings: newDailyEarn,
     }).eq('id', product.userId);
 
-    await updateProduct({
-      ...product,
-      lastIncomeDate: now.toISOString(),
-      totalIncomeEarned: product.totalIncomeEarned + product.dailyIncome,
-    });
+    await supabase.from('samsung_products').update({
+      last_income_date: now.toISOString(),
+      total_income_earned: product.totalIncomeEarned + product.dailyIncome,
+    }).eq('id', product.id);
 
     await addNotification({
       userId: product.userId,
