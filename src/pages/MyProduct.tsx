@@ -21,15 +21,38 @@ const MyProduct = () => {
     const init = async () => {
       const u = getCurrentUser();
       if (!u) { navigate('/login'); return; }
-      // Always fetch fresh product list from cloud
       const prods = await getUserProducts(u.id);
-      setProducts([...prods].reverse());
+
+      // FIX: Auto-calculate income if backend didn't
+      const fixedProds = prods.map(p => {
+        if (p.status === 'active') {
+          const buy = new Date(p.buyDate).getTime();
+          const now = Date.now();
+          const daysPassed = Math.max(0, Math.floor((now - buy) / (1000*60*60*24)));
+          const maxDays = Math.floor((new Date(p.expiryDate).getTime() - buy) / (1000*60*60*24));
+          const validDays = Math.min(daysPassed, maxDays > 0? maxDays : daysPassed);
+
+          // If backend total is 0 but should have income, calculate live
+          if (!p.totalIncomeEarned || p.totalIncomeEarned < p.dailyIncome) {
+            if (validDays >= 1) {
+              p.totalIncomeEarned = validDays * p.dailyIncome;
+            }
+          }
+          // Auto-expire
+          if (now > new Date(p.expiryDate).getTime()) {
+            p.status = 'expired';
+          }
+        }
+        return p;
+      });
+
+      setProducts([...fixedProds].reverse());
       setLoading(false);
     };
     init();
   }, [navigate]);
 
-  const filtered = filter === 'all' ? products : products.filter((p) => p.status === filter);
+  const filtered = filter === 'all'? products : products.filter((p) => p.status === filter);
 
   if (loading) return <div className="min-h-screen flex items-center justify-center text-gray-400">Loading...</div>;
 
@@ -42,12 +65,12 @@ const MyProduct = () => {
 
       <div className="flex gap-2 px-4 py-3 bg-white border-b border-gray-100 overflow-x-auto scrollbar-hide">
         {['all', 'pending', 'active', 'expired'].map((f) => (
-          <button key={f} onClick={() => setFilter(f as typeof filter)} className={`shrink-0 px-4 py-1.5 rounded-full text-sm font-medium capitalize transition-colors ${filter === f ? 'bg-blue-600 text-white' : 'bg-gray-100 text-gray-600'}`}>{f}</button>
+          <button key={f} onClick={() => setFilter(f as typeof filter)} className={`shrink-0 px-4 py-1.5 rounded-full text-sm font-medium capitalize transition-colors ${filter === f? 'bg-blue-600 text-white' : 'bg-gray-100 text-gray-600'}`}>{f}</button>
         ))}
       </div>
 
       <div className="px-4 py-4 space-y-4">
-        {filtered.length === 0 ? (
+        {filtered.length === 0? (
           <div className="text-center py-16">
             <div className="text-5xl mb-4">📦</div>
             <div className="text-gray-500 font-medium">No products found</div>
@@ -69,7 +92,7 @@ const MyProduct = () => {
               {p.status === 'active' && (
                 <div className="flex items-center justify-between bg-green-50 rounded-xl px-3 py-2">
                   <div className="flex items-center gap-1.5"><Clock className="w-4 h-4 text-green-600" /><span className="text-green-700 text-sm font-medium">{daysLeft(p.expiryDate)} days left</span></div>
-                  <div className="text-green-700 text-sm font-bold">Earned: {formatUGX(p.totalIncomeEarned)}</div>
+                  <div className="text-green-700 text-sm font-bold">Earned: {formatUGX(p.totalIncomeEarned || 0)}</div>
                 </div>
               )}
               {p.status === 'pending' && (
