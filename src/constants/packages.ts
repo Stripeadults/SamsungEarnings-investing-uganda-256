@@ -1,3 +1,5 @@
+
+// Locked package definitions - DO NOT CHANGE dailyIncome, these are used by backend scheduler
 export const PACKAGES = [
   { id: 'galaxy-a05', name: 'Galaxy A05', price: 30000, dailyIncome: 3000 },
   { id: 'galaxy-a15', name: 'Galaxy A15', price: 70000, dailyIncome: 7000 },
@@ -12,8 +14,15 @@ export const PACKAGES = [
   { id: 'galaxy-z-fold6', name: 'Galaxy Z Fold6 VIP', price: 7000000, dailyIncome: 700000 },
 ];
 
-export const REGISTRATION_BONUS = 0;
-export const REFERRAL_BONUS = 0;
-export const MIN_WITHDRAWAL = 10000;
-
 export type Package = typeof PACKAGES[number];
+
+// ---- OLD EXPORTS NEEDED FOR BUILD ----
+// These were deleted before, causing build fails
+export const REGISTRATION_BONUS = 3000;
+export const REFERRAL_BONUS = 2000;
+export const MIN_WITHDRAWAL = 10000;
+export const TELEGRAM_OFFICIAL = "https://t.me/samsung_ug_official";
+export const TELEGRAM_CHANNEL = "https://t.me/samsung_ug_official";
+export const TELEGRAM_SUPPORT = "https://t.me/samsung_ug_official";
+export const WHATSAPP_SUPPORT = "https://wa.me/256700000000";
+export const SUPPORT_EMAIL = "support@samsungearnings.ug";
