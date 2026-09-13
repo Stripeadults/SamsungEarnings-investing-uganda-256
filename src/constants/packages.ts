@@ -12,4 +12,8 @@ export const PACKAGES = [
   { id: 'galaxy-z-fold6', name: 'Galaxy Z Fold6 VIP', price: 7000000, dailyIncome: 700000 },
 ];
 
+export const REGISTRATION_BONUS = 0;
+export const REFERRAL_BONUS = 0;
+export const MIN_WITHDRAWAL = 10000;
+
 export type Package = typeof PACKAGES[number];
