@@ -239,6 +239,14 @@ const approveWithdrawal = async (wId: string) => {
   const w = withdrawals.find((x) => x.id === wId);
   if (!w || w.status !== 'pending') return;
 
+  // ===== 1. SECURITY: CHECK ACTIVE PACKAGE =====
+  const userProds = products.filter(p => p.userId === w.userId);
+  const activeProds = userProds.filter(p => p.status === 'active' && new Date(p.expiryDate) > new Date());
+  if (activeProds.length === 0) {
+    toast.error(`❌ BLOCKED: ${w.userName} has NO active package - hacker!`);
+    return;
+  }
+
   const { data: freshUser, error: fetchErr } = await supabase
     .from('samsung_users')
     .select('balance, total_withdrawal')
@@ -258,11 +266,11 @@ const approveWithdrawal = async (wId: string) => {
     return;
   }
 
-  // DEDUCT ONLY requested amount, nothing else
+  // DEDUCT ONLY requested amount
   const { error } = await supabase
     .from('samsung_users')
     .update({
-      balance: currentBalance - amount, // only amount
+      balance: currentBalance - amount,
       total_withdrawal: Number(freshUser.total_withdrawal || 0) + amount
     })
     .eq('id', w.userId);
@@ -271,6 +279,23 @@ const approveWithdrawal = async (wId: string) => {
     toast.error('Failed: ' + error.message);
     return;
   }
+
+  await supabase.from('samsung_withdrawals').update({
+    status: 'approved',
+    processed_at: new Date().toISOString()
+  }).eq('id', w.id);
+
+  await addNotification({ 
+    userId: w.userId, 
+    type: 'withdrawal_approved', 
+    title: 'Withdrawal Approved!', 
+    message: `UGX ${Number(w.netAmount || amount).toLocaleString()} sent to ${w.walletPhone}.`, 
+    isRead: false 
+  });
+  
+  await refresh();
+  toast.success(`Approved! Deducted ${formatUGX(amount)}`);
+};
 
   await supabase.from('samsung_withdrawals').update({
     status: 'approved',
