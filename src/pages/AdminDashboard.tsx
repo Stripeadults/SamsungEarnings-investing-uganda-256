@@ -394,27 +394,31 @@ const rejectWithdrawal = async (wId: string) => {
     if (!amt || amt <= 0) { toast.error('Enter a valid amount'); return; }
     if (!adjustReason.trim()) { toast.error('Please enter a reason'); return; }
     setAdjusting(true);
-
-    const freshUser = users.find((u) => u.id === adjustUser.id);
-    if (!freshUser) { setAdjusting(false); return; }
-    const newBalance = adjustType === 'add' ? freshUser.balance + amt : Math.max(0, freshUser.balance - amt);
-    await updateUser({ ...freshUser, balance: newBalance });
-    await addNotification({
-      userId: freshUser.id,
-      type: 'package_approved',
-      title: adjustType === 'add' ? 'Balance Added' : 'Balance Deducted',
-      message: `Admin ${adjustType === 'add' ? 'added' : 'deducted'} ${formatUGX(amt)} ${adjustType === 'add' ? 'to' : 'from'} your account. Reason: ${adjustReason}`,
-      isRead: false,
-    });
-    await refresh();
-    toast.success(`Balance ${adjustType === 'add' ? 'added' : 'deducted'} successfully!`);
-    setAdjustUser(null);
-    setAdjustAmount('');
-    setAdjustReason('');
-    setAdjustType('add');
+    try {
+      const { data: fresh, error: fErr } = await supabase.from('samsung_users').select('balance').eq('id', adjustUser.id).single();
+      if (fErr || !fresh) { toast.error('User not found'); setAdjusting(false); return; }
+      const newBalance = adjustType === 'add' ? Number(fresh.balance) + amt : Math.max(0, Number(fresh.balance) - amt);
+      const { error } = await supabase.from('samsung_users').update({ balance: newBalance }).eq('id', adjustUser.id);
+      if (error) throw error;
+      await supabase.from('samsung_notifications').insert({
+        user_id: adjustUser.id,
+        type: 'package_approved',
+        title: adjustType === 'add' ? 'Balance Added' : 'Balance Deducted',
+        message: `Admin ${adjustType === 'add' ? 'added' : 'deducted'} ${formatUGX(amt)} - Reason: ${adjustReason}`,
+        is_read: false,
+        created_at: new Date().toISOString()
+      });
+      await refresh();
+      toast.success(`Done! New: ${formatUGX(newBalance)}`);
+      setAdjustUser(null);
+      setAdjustAmount('');
+      setAdjustReason('');
+      setAdjustType('add');
+    } catch (e: any) {
+      toast.error('Failed: ' + e.message);
+    }
     setAdjusting(false);
   };
-
   const handleDeleteUser = async () => {
     if (!deleteUserTarget) return;
     setDeletingUser(true);
